@@ -1,0 +1,35 @@
+#!/bin/bash
+# Launch the iDRAC6 virtual console headlessly: authenticate over legacy TLS,
+# pull the .jnlp, and hand it to javaws. Falls back to the web UI if login
+# details aren't supplied.
+# Usage: idrac6 <idrac-ip> [user] [pass]
+IP="${1:?usage: idrac6 <idrac-ip> [user] [pass]}"
+USER="${2:-root}"
+PASS="${3:-calvin}"
+export DISPLAY=:1
+
+CURL="curl -sk --tlsv1 --ciphers DEFAULT@SECLEVEL=0"
+JAR=/tmp/idrac6.cookie
+
+echo "Authenticating to iDRAC6 $IP as $USER ..."
+$CURL -c "$JAR" \
+  "https://$IP/data/login" \
+  --data "user=$USER&password=$PASS" >/tmp/idrac6.login || true
+
+if grep -q authResult /tmp/idrac6.login 2>/dev/null && ! grep -q 'authResult.0' /tmp/idrac6.login; then
+  echo "Login didn't take — opening the web UI instead; launch vConsole from there."
+  firefox-esr "https://$IP" &
+  exit 0
+fi
+
+echo "Fetching vKVM JNLP ..."
+$CURL -b "$JAR" \
+  "https://$IP/viewer.jnlp(${IP}@0@${USER}@$(date +%s))" \
+  -o /tmp/idrac6.jnlp || true
+
+if [ -s /tmp/idrac6.jnlp ]; then
+  javaws /tmp/idrac6.jnlp
+else
+  echo "Couldn't grab the JNLP automatically — opening web UI; launch vConsole manually."
+  firefox-esr "https://$IP" &
+fi

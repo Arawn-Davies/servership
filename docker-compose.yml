@@ -1,0 +1,11 @@
+services:
+  bmc-console:
+    build: .
+    container_name: bmc-console
+    ports:
+      - "8080:8080"          # http://localhost:8080/vnc.html
+    restart: unless-stopped
+    # BMCs live on your LAN; host networking avoids NAT hassle if you run this
+    # on a node. On Docker Desktop (Win11/WSL2) leave the ports mapping above
+    # and reach BMCs by IP normally.
+    # network_mode: host
