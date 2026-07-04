@@ -1,0 +1,4 @@
+# label        ip            user  pass
+# one BMC per line; copy to bmc.conf (gitignored) and fill in real creds
+SQUIDBOAT       10.0.0.81     root  CHANGEME
+SQUIDBLADE      10.0.0.245    Administrator  CHANGEME

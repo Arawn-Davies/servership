@@ -1,0 +1,14 @@
+<% @title = "#{@node[:label]} console" %>
+<div class="flex items-center gap-3 mb-4">
+  <h1 class="text-xl font-semibold tracking-tight"><%= @node[:label] %> <span class="text-slate-500 font-normal">console</span></h1>
+  <span class="text-sm text-slate-500"><%= @node[:kind] %></span>
+  <a href="/dashboard" class="ml-auto text-sm text-slate-400 hover:text-slate-200">← dashboard</a>
+</div>
+<p class="text-sm text-slate-400 mb-3">
+  Launching the <%= @node[:kind] %> console - in the embedded desktop below,
+  log in and open <b>Remote Console</b> (iLO2) or <b>Launch Virtual Console</b> (iDRAC6).
+</p>
+<iframe
+  src="/novnc/vnc.html?path=websockify/<%= @node[:key] %>&autoconnect=true&resize=scale&reconnect=true"
+  class="w-full rounded-2xl border border-slate-800 bg-black"
+  style="height:82vh"></iframe>

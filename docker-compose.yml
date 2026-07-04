@@ -1,16 +1,26 @@
 services:
-  bmc-console:
+  # Legacy KVM engine - Xvnc + fluxbox + Firefox 52/Java + launch listener.
+  # No published ports: Xvnc:5901 and launcher:9000 are reached only by `web`
+  # over the compose network.
+  console:
     build: .
     container_name: bmc-console
-    ports:
-      - "8080:8080"          # http://localhost:8080/vnc.html
+    env_file: [.env]
     volumes:
-      # ISOs for virtual media. Drop .iso files in ./isos (or point this at any
-      # host folder, e.g. /mnt/c/Users/you/Downloads on WSL2). They appear inside
-      # the console's "Virtual Media / Image File" picker at /isos.
+      # ISOs for virtual media → appear in the console's Image File picker at /isos
       - ./isos:/isos:ro
     restart: unless-stopped
-    # BMCs live on your LAN; host networking avoids NAT hassle if you run this
-    # on a node. On Docker Desktop (Win11/WSL2) leave the ports mapping above
-    # and reach BMCs by IP normally.
-    # network_mode: host
+
+  # Sinatra + Tailwind control panel; also serves noVNC and proxies its
+  # WebSocket to console:5901. This is the only thing you open in a browser.
+  web:
+    build: ./web
+    container_name: bmc-web
+    env_file: [.env]
+    environment:
+      CONSOLE_HOST: console
+      VNC_PORT: "5901"
+    ports:
+      - "8088:8088"          # http://localhost:8088
+    depends_on: [console]
+    restart: unless-stopped

@@ -1,11 +1,11 @@
 #!/bin/bash
-# iLO2's remote console is an in-browser Java <applet> needing NPAPI, so it must
-# run in Firefox 52 ESR (last NPAPI release) with the IcedTea Java plugin.
-# Log in, then Remote Console tab -> the applet loads inline.
+# iLO2's remote console is an in-browser Java <applet> needing NPAPI, so it runs
+# in Firefox 52 ESR (last NPAPI release) with the IcedTea Java plugin. Log in,
+# then Remote Console tab -> the applet loads inline. Runs on the display the
+# launch listener assigns (:1).
 # Usage: ilo2 <ilo-ip>
 IP="${1:?usage: ilo2 <ilo-ip>}"
-export DISPLAY=:1
+export DISPLAY="${DISPLAY:-:1}"
 PROFILE=/root/.ff52-ilo
 mkdir -p "$PROFILE"
-echo "Opening iLO2 at https://$IP in Firefox 52 (NPAPI/Java). Log in -> Remote Console."
-/opt/firefox52/firefox --no-remote --profile "$PROFILE" "https://$IP" &
+exec /opt/firefox52/firefox --no-remote --profile "$PROFILE" "https://$IP"

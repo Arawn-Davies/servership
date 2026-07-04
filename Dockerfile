@@ -1,13 +1,13 @@
-# Legacy BMC console appliance — launches iLO2 (HP) and iDRAC6 (Dell) Java
+# Legacy BMC console appliance - launches iLO2 (HP) and iDRAC6 (Dell) Java
 # KVM applets that modern OSes/browsers can no longer run. You view its
 # desktop from a modern browser via noVNC; it does the dead-crypto handshake.
 FROM debian:stretch
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Stretch is archived — point apt at archive.debian.org and skip the stale
+# Stretch is archived - point apt at archive.debian.org and skip the stale
 # Valid-Until check. Stretch is the last Debian carrying openjdk-8 +
-# icedtea-netx + firefox-esr together — exactly the legacy stack these BMCs need.
+# icedtea-netx + firefox-esr together - exactly the legacy stack these BMCs need.
 RUN printf '%s\n' \
       'deb http://archive.debian.org/debian stretch main' \
       'deb http://archive.debian.org/debian-security stretch/updates main' \
@@ -17,7 +17,7 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y --n
       openjdk-8-jre icedtea-netx \
       tigervnc-standalone-server tigervnc-common \
       novnc websockify \
-      fluxbox xterm x11-utils dbus-x11 \
+      matchbox-window-manager x11-utils dbus-x11 xdotool \
       firefox-esr \
       ca-certificates wget curl procps nano bzip2 \
     && rm -rf /var/lib/apt/lists/*
@@ -61,7 +61,7 @@ RUN FF=/etc/firefox-esr && mkdir -p $FF && \
 
 # --- NPAPI Java plugin: stretch dropped IcedTeaPlugin.so (ships only
 # plugin.jar). Graft the native .so AND both Java jars (plugin.jar + netx.jar)
-# in from jessie's icedtea-web 1.5.3. ALL THREE must be the same version — the
+# in from jessie's icedtea-web 1.5.3. ALL THREE must be the same version - the
 # native .so, plugin.jar and netx.jar share a private ABI; a 1.5.3 plugin.jar
 # against stretch's 1.6.2 netx.jar throws NoSuchMethodError on NetxPanel.<init>
 # and the applet never starts.
@@ -80,17 +80,17 @@ RUN cd /tmp && \
 
 # The 1.5.3 plugin has /usr/lib/jvm/java-7-openjdk-amd64/{bin/java,lib/rt.jar}
 # HARDCODED (it was a java-7 build). We only have java-8, so point that exact
-# path at java-8's JRE — java 8 runs these applets fine. Without this the plugin
+# path at java-8's JRE - java 8 runs these applets fine. Without this the plugin
 # loads but silently never spawns the JVM (blank applet, no "needs JVM" text).
 RUN ln -sfn /usr/lib/jvm/java-8-openjdk-amd64/jre /usr/lib/jvm/java-7-openjdk-amd64 && \
     ls -l /usr/lib/jvm/java-7-openjdk-amd64/bin/java /usr/lib/jvm/java-7-openjdk-amd64/lib/rt.jar
 
 # --- Firefox 52.9 ESR: the LAST release with NPAPI, needed for iLO2's Java
 # applet (iLO2 embeds the console as an in-browser <applet>, not a JNLP, so
-# javaws can't help — it must run inside an NPAPI-capable browser). Modern
+# javaws can't help - it must run inside an NPAPI-capable browser). Modern
 # firefox-esr dropped NPAPI, hence "no JVM detected". Used ONLY for iLO2.
 # Tarball is fetched host-side (stretch's wget can't do Mozilla's modern TLS)
-# and COPYed in — see .gitignore / README.
+# and COPYed in - see .gitignore / README.
 COPY firefox-52.9.0esr.tar.bz2 /tmp/ff52.tar.bz2
 RUN tar xjf /tmp/ff52.tar.bz2 -C /opt && rm /tmp/ff52.tar.bz2 && \
     mv /opt/firefox /opt/firefox52 && \
@@ -117,7 +117,9 @@ RUN tar xjf /tmp/ff52.tar.bz2 -C /opt && rm /tmp/ff52.tar.bz2 && \
 COPY start.sh /usr/local/bin/start.sh
 COPY ilo2 /usr/local/bin/ilo2
 COPY idrac6 /usr/local/bin/idrac6
-RUN chmod +x /usr/local/bin/start.sh /usr/local/bin/ilo2 /usr/local/bin/idrac6
+COPY launchd.py /usr/local/bin/launchd.py
+RUN chmod +x /usr/local/bin/start.sh /usr/local/bin/ilo2 /usr/local/bin/idrac6 /usr/local/bin/launchd.py
 
-EXPOSE 8080
+# Xvnc :5901 and the launcher :9000 are internal (compose network) only -
+# the Ruby web container serves noVNC and proxies the VNC WebSocket.
 CMD ["/usr/local/bin/start.sh"]

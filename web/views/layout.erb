@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <% if @refresh %><meta http-equiv="refresh" content="<%= @refresh %>"><% end %>
+  <title><%= @title ? "#{@title} · Servership" : 'Servership' %></title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class',
+      theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } } }
+  </script>
+  <style>body{background:#0a0e14} ::-webkit-scrollbar{width:8px;height:8px}
+    ::-webkit-scrollbar-thumb{background:#1e293b;border-radius:8px}</style>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased">
+  <header class="sticky top-0 z-10 backdrop-blur bg-slate-950/80 border-b border-slate-800">
+    <div class="max-w-6xl mx-auto px-5 h-14 flex items-center gap-6">
+      <a href="/" class="font-semibold tracking-tight flex items-center gap-2">
+        <span class="text-lg">⚓</span> Servership
+      </a>
+      <nav class="ml-auto flex items-center gap-1 text-sm">
+        <a href="/dashboard" class="px-3 py-1.5 rounded-lg hover:bg-slate-800 text-slate-300">Dashboard</a>
+        <a href="/console/ilo" class="px-3 py-1.5 rounded-lg hover:bg-slate-800 text-slate-300">iLO2</a>
+        <a href="/console/idrac" class="px-3 py-1.5 rounded-lg hover:bg-slate-800 text-slate-300">iDRAC6</a>
+      </nav>
+    </div>
+  </header>
+  <main class="max-w-6xl mx-auto px-5 py-8"><%= yield %></main>
+</body>
+</html>

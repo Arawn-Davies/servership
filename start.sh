@@ -1,18 +1,23 @@
 #!/bin/bash
-# Bring up a headless X desktop and expose it over the browser via noVNC.
+# KVM engine: ONE headless X display per BMC so each console is fully isolated
+# (no shared desktop, no switching within noVNC):
+#   :1 / Xvnc 5901  -> iLO2   (Firefox 52 + NPAPI)
+#   :2 / Xvnc 5902  -> iDRAC6 (firefox-esr + javaws vKVM)
+# Each display gets a kiosk WM (matchbox) so the browser/console fills the
+# screen: no desktop, no titlebars, no terminal. Consoles are launched by
+# clicking a card in the web app, never from a shell. Nothing is published to
+# the host: Xvnc:5901/5902 and the launcher:9000 are reached over the compose
+# network only.
 set -e
 
-export DISPLAY=:1
-rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+rm -f /tmp/.X1-lock /tmp/.X2-lock /tmp/.X11-unix/X1 /tmp/.X11-unix/X2 2>/dev/null || true
 
-# VNC server (no password — it's on your LAN behind noVNC; add -SecurityTypes
-# VncAuth + a passwd file if you want a prompt).
 Xvnc :1 -geometry 1280x1024 -depth 24 -SecurityTypes None -AlwaysShared &
+Xvnc :2 -geometry 1280x1024 -depth 24 -SecurityTypes None -AlwaysShared &
 sleep 2
 
-fluxbox &
-# A terminal so you can type `ilo2 <ip>` / `idrac6 <ip>` straight away.
-xterm -geometry 100x30+20+20 -title "BMC console — run: ilo2 <ip>  |  idrac6 <ip>" &
+DISPLAY=:1 matchbox-window-manager -use_titlebar no &
+DISPLAY=:2 matchbox-window-manager -use_titlebar no &
 
-# Serve the desktop at http://<host>:8080/vnc.html (modern noVNC in /opt/novnc)
-websockify --web=/opt/novnc 8080 localhost:5901
+# launch listener (foreground -> keeps the container alive)
+exec python /usr/local/bin/launchd.py

@@ -1,0 +1,78 @@
+<% @title = 'IPMI Dashboard'; @refresh = 20 %>
+<div class="flex items-baseline justify-between mb-6">
+  <h1 class="text-2xl font-semibold tracking-tight">IPMI Dashboard</h1>
+  <p class="text-sm text-slate-500">auto-refresh 20s · IPMI 2.0 lanplus (HP + Dell, one protocol)</p>
+</div>
+
+<% NODES.each do |k, n| %>
+  <% s = @nodes[k] || {} %>
+  <% sc = status_class(s[:power], s[:ok]) %>
+  <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 mb-6">
+    <div class="flex items-center gap-3 flex-wrap">
+      <h2 class="text-lg font-semibold"><%= n[:label] %></h2>
+      <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold
+        <%= sc == 'on' ? 'bg-emerald-500/15 text-emerald-400' :
+             sc == 'off' ? 'bg-rose-500/15 text-rose-400' : 'bg-slate-500/15 text-slate-400' %>">
+        <%= s[:power] %>
+      </span>
+      <span class="text-sm text-slate-500"><%= n[:kind] %> · <%= n[:ip].empty? ? 'no ip' : n[:ip] %></span>
+      <a href="/console/<%= k %>" class="ml-auto text-sm text-<%= n[:accent] %>-400 hover:underline">Open console →</a>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+      <% [['Power draw', s[:watts] || '-'], ['Ambient', ambient(s[:temps] || [])],
+          ['Fans OK', fans_ok(s[:fans] || [])], ['Sensors', (s[:temps]||[]).size + (s[:volts]||[]).size]].each do |kk, vv| %>
+        <div class="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
+          <div class="text-[11px] uppercase tracking-wide text-slate-500"><%= kk %></div>
+          <div class="text-xl font-semibold mt-0.5"><%= vv %></div>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-5 mt-5">
+      <% [['Temperatures', s[:temps]], ['Fans', s[:fans]]].each do |title, rows| %>
+        <div>
+          <div class="text-sm font-medium mb-2"><%= title %></div>
+          <div class="max-h-48 overflow-auto rounded-xl border border-slate-800">
+            <table class="w-full text-xs">
+              <% (rows || []).each do |a, b, c| %>
+                <tr class="border-b border-slate-800/60">
+                  <td class="px-3 py-1.5 text-slate-300"><%= a %></td>
+                  <td class="px-3 py-1.5 text-slate-400"><%= b %></td>
+                  <td class="px-3 py-1.5 <%= c.to_s.downcase.include?('ok') ? 'text-emerald-400' : 'text-slate-500' %>"><%= c %></td>
+                </tr>
+              <% end %>
+              <% if (rows || []).empty? %><tr><td class="px-3 py-2 text-slate-600">none</td></tr><% end %>
+            </table>
+          </div>
+        </div>
+      <% end %>
+    </div>
+
+    <% if !(s[:sel] || []).empty? %>
+      <details class="mt-4"><summary class="text-sm text-slate-500 cursor-pointer">Recent SEL events (<%= s[:sel].size %>)</summary>
+        <pre class="mt-2 text-[11px] text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800 p-3 overflow-auto"><%= s[:sel].join("\n") %></pre>
+      </details>
+    <% end %>
+
+    <div class="flex flex-wrap gap-2 mt-5">
+      <% [['on','Power On','emerald'], ['soft','Soft Shutdown','slate'], ['cycle','Power Cycle','amber'],
+          ['reset','Reset','amber'], ['off','Force Off','rose'], ['identify','Identify LED','indigo'],
+          ['selclear','Clear SEL','slate']].each do |act, lbl, col| %>
+        <button onclick="act('<%= k %>','<%= act %>')"
+          class="px-3 py-1.5 rounded-lg text-sm border border-slate-700 hover:border-<%= col %>-500 hover:bg-<%= col %>-500/10 text-slate-200"><%= lbl %></button>
+      <% end %>
+    </div>
+  </section>
+<% end %>
+
+<script>
+function act(node, action){
+  if(['off','cycle','reset','selclear'].includes(action) &&
+     !confirm(node + ': ' + action + ' - are you sure?')) return;
+  fetch('/power', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({node:node, action:action})})
+    .then(r => r.text()).then(t => { alert(t); location.reload(); })
+    .catch(e => alert('failed: ' + e));
+}
+</script>
