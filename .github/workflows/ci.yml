@@ -1,0 +1,35 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          working-directory: web
+          bundler-cache: true
+
+      - name: RSpec
+        run: bundle exec rspec
+
+      - name: bundler-audit (dependency CVEs)
+        run: |
+          gem install bundler-audit
+          bundle-audit check --update
+
+      # Brakeman is Rails-oriented, so on this Sinatra app it is a best-effort
+      # scan (won't find Sinatra-specific issues); kept non-blocking per request.
+      - name: Brakeman
+        run: |
+          gem install brakeman
+          brakeman --force --no-exit-on-warn --no-pager --quiet || true

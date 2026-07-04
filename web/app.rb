@@ -92,6 +92,10 @@ class BMC < Sinatra::Base
   set :environment, :production
   set :views,         File.expand_path('views',  __dir__)
   set :public_folder, File.expand_path('public', __dir__)   # serves /novnc/*
+  # Auto HTML-escape all <%= %> output (via Erubi) so BMC-derived strings
+  # (sensor names, SEL entries) and usernames can't inject markup. Intentional
+  # HTML uses <%== %> (only the layout's yield).
+  set :erb, escape_html: true
 
   helpers do
     def status_class(power, ok)

@@ -5,6 +5,7 @@
 # console stream alike.
 require 'faye/websocket'
 require 'eventmachine'
+require 'securerandom'
 require 'omniauth'
 require 'omniauth-github'
 require './app'
@@ -40,8 +41,11 @@ ws_proxy = lambda do |env|
   ws.rack_response
 end
 
+# A random per-boot secret if unset (secure, but sessions reset on restart) -
+# NEVER a fixed public default, which would let anyone forge an auth cookie.
+# Set SESSION_SECRET in .env for sessions that survive restarts.
 use Rack::Session::Cookie,
-    secret: ENV['SESSION_SECRET'] || ('x' * 64),
+    secret: (ENV['SESSION_SECRET'].to_s.empty? ? SecureRandom.hex(64) : ENV['SESSION_SECRET']),
     same_site: :lax,
     expire_after: 60 * 60 * 12
 use OmniAuth::Builder do

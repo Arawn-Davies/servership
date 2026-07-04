@@ -3,6 +3,7 @@ gem 'sinatra', '~> 3.2'      # Rack 2.x - rackup binary + thin play nicely
 gem 'thin', '~> 1.8'         # EventMachine server (2.0.x has a load bug on Ruby 3.4)
 gem 'faye-websocket'
 gem 'eventmachine'
+gem 'erubi'                   # HTML-auto-escaping ERB (XSS protection)
 gem 'omniauth', '~> 2.1'
 gem 'omniauth-github'
 
