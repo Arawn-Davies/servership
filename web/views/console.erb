@@ -24,19 +24,22 @@
 <script>
 function consoleAction(action){
   var s = document.getElementById('cstatus');
-  s.textContent = action === 'reload' ? 'reloading console...' : 'stopping console...';
-  fetch('/console/<%= @node[:key] %>/' + action, { method: 'POST' })
+  var f = document.getElementById('vnc');
+  if (action === 'exit') {
+    // instant: drop the noVNC connection + blank the frame, fire the kill in the
+    // background, and go straight to the fast landing page (dashboard is slow -
+    // it queries IPMI on load).
+    s.textContent = 'stopping console...';
+    f.src = 'about:blank';
+    fetch('/console/<%= @node[:key] %>/exit', { method: 'POST' });
+    setTimeout(function(){ window.location = '/'; }, 250);
+    return;
+  }
+  // reload: relaunch Firefox on the engine, then reconnect noVNC
+  s.textContent = 'reloading console...';
+  fetch('/console/<%= @node[:key] %>/reload', { method: 'POST' })
     .then(function(){
-      if (action === 'reload') {
-        // give the engine a moment to relaunch Firefox, then reconnect noVNC
-        setTimeout(function(){
-          var f = document.getElementById('vnc');
-          f.src = f.src;
-          s.textContent = '';
-        }, 2000);
-      } else {
-        window.location = '/dashboard';
-      }
+      setTimeout(function(){ f.src = f.src; s.textContent = ''; }, 2000);
     })
     .catch(function(){ s.textContent = 'failed'; });
 }

@@ -60,6 +60,23 @@ def gather_all
   out
 end
 
+# Background poller: refresh the IPMI snapshot every ~12s so the dashboard serves
+# a cached view instantly instead of blocking on ipmitool (each iLO IPMI session
+# is slow) on every load and every 20s auto-refresh.
+STATUS = { data: {} }
+unless ENV['RACK_ENV'] == 'test'
+  Thread.new do
+    loop do
+      begin
+        STATUS[:data] = gather_all
+      rescue StandardError
+        # keep serving the last good snapshot
+      end
+      sleep 12
+    end
+  end
+end
+
 class BMC < Sinatra::Base
   set :environment, :production
   set :views,         File.expand_path('views',  __dir__)
@@ -140,7 +157,9 @@ class BMC < Sinatra::Base
   get('/') { erb :landing }
 
   get '/dashboard' do
-    @nodes = gather_all
+    # Serve the cached snapshot (instant); only block on a live gather if the
+    # poller has not produced one yet (first load right after boot).
+    @nodes = STATUS[:data].empty? ? gather_all : STATUS[:data]
     erb :dashboard
   end
 

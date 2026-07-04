@@ -10,9 +10,11 @@ import BaseHTTPServer, subprocess, os, time
 
 DEVNULL = open(os.devnull, 'w')
 
-# key -> (display, browser-process-match, launch command)
+# key -> (display, browser-process-match, launch command). The match is broad
+# (the install dir) so kill/running catch the whole tree (main + plugin-container
+# + Java), not just the launcher process.
 LAUNCH = {
-    'ilo':   (':1', '/opt/firefox52/firefox',
+    'ilo':   (':1', '/opt/firefox52',
               ['/usr/local/bin/ilo2', os.environ.get('ILO_IP', '')]),
     'idrac': (':2', 'firefox-esr',
               ['/usr/local/bin/idrac6', os.environ.get('IDRAC_IP', ''),
