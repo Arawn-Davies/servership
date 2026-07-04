@@ -13,6 +13,11 @@ NODES = {
 }
 CONSOLE_HOST = ENV['CONSOLE_HOST'] || 'console'   # compose service running the KVM engine
 
+# --- platform auth (front door; BMC creds stay server-side regardless) -------
+GITHUB_ALLOWED = ENV['GITHUB_ALLOWED_USERS'].to_s.split(',').map { |s| s.strip.downcase }.reject(&:empty?)
+PLATFORM_USER  = ENV['PLATFORM_USER'].to_s
+PLATFORM_PASS  = ENV['PLATFORM_PASS'].to_s
+
 # --- IPMI (no shell: array exec, so a '!' in a password is safe) -------------
 def ipmi(n, *args)
   return '' if n[:ip].empty?
@@ -71,6 +76,65 @@ class BMC < Sinatra::Base
     def fans_ok(fans)
       fans.count { |f| f[2].to_s.downcase.include?('ok') }
     end
+    def authed?      = !!session['auth']
+    def current_user = session['user']
+    def github_enabled? = !ENV['GITHUB_CLIENT_ID'].to_s.empty?
+    def local_enabled?  = !PLATFORM_USER.empty?
+    def auth_enabled?   = github_enabled? || local_enabled?
+  end
+
+  # Gate everything behind login once any auth method is configured. Static
+  # /novnc/* assets are served before filters run, so they stay reachable
+  # (inert without an authed WebSocket). /auth/* is OmniAuth's territory.
+  before do
+    next unless auth_enabled?
+    p = request.path_info
+    next if p == '/login' || p == '/logout' || p.start_with?('/auth/')
+    redirect '/login' unless session['auth']
+  end
+
+  get '/login' do
+    redirect '/' if session['auth']
+    erb :login
+  end
+
+  post '/login' do
+    if local_enabled? &&
+       Rack::Utils.secure_compare(PLATFORM_USER, params['user'].to_s) &&
+       Rack::Utils.secure_compare(PLATFORM_PASS, params['pass'].to_s)
+      session['auth'] = true
+      session['user'] = PLATFORM_USER
+      redirect '/'
+    else
+      @error = 'Invalid credentials'
+      status 401
+      erb :login
+    end
+  end
+
+  # OmniAuth GitHub callback: allow only listed usernames.
+  get '/auth/github/callback' do
+    login = request.env.dig('omniauth.auth', 'info', 'nickname').to_s
+    if !login.empty? && GITHUB_ALLOWED.include?(login.downcase)
+      session['auth'] = true
+      session['user'] = login
+      redirect '/'
+    else
+      @error = login.empty? ? 'GitHub sign-in failed' : "#{login} is not authorised"
+      status 403
+      erb :login
+    end
+  end
+
+  get '/auth/failure' do
+    @error = "GitHub sign-in failed: #{params['message']}"
+    status 401
+    erb :login
+  end
+
+  get '/logout' do
+    session.clear
+    redirect '/login'
   end
 
   get('/') { erb :landing }
