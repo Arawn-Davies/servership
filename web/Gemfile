@@ -1,9 +1,11 @@
 source 'https://rubygems.org'
-gem 'sinatra', '~> 3.2'      # Rack 2.x - rackup binary + thin play nicely
-gem 'thin', '~> 1.8'         # EventMachine server (2.0.x has a load bug on Ruby 3.4)
-gem 'faye-websocket'
-gem 'eventmachine'
-gem 'erubi'                   # HTML-auto-escaping ERB (XSS protection)
+gem 'sinatra', '~> 4.2'      # >= 4.2 clears CVE-2024-21510 / CVE-2025-61921 (Rack 3)
+gem 'rackup'                 # Rack 3 split rackup out of rack
+gem 'puma'                   # Rack 3 server (thin 1.8 is Rack 2 only)
+gem 'rack-session'           # Rack 3 extracted session middleware
+gem 'faye-websocket'         # WS proxy, via rack.hijack under puma (no EventMachine)
+gem 'eventmachine'           # faye dependency (not used as a reactor here)
+gem 'erubi'                  # HTML-auto-escaping ERB (XSS protection)
 gem 'omniauth', '~> 2.1'
 gem 'omniauth-github'
 

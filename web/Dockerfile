@@ -22,4 +22,4 @@ COPY spec ./spec
 EXPOSE 8088
 # -E production drops Rack::Lint/ShowExceptions, which otherwise reject
 # faye-websocket's async hijack response and 500 the /websockify upgrade.
-CMD ["bundle", "exec", "rackup", "-s", "thin", "-E", "production", "-o", "0.0.0.0", "-p", "8088"]
+CMD ["bundle", "exec", "rackup", "-s", "puma", "-E", "production", "-o", "0.0.0.0", "-p", "8088"]
