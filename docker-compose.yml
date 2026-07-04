@@ -4,6 +4,11 @@ services:
     container_name: bmc-console
     ports:
       - "8080:8080"          # http://localhost:8080/vnc.html
+    volumes:
+      # ISOs for virtual media. Drop .iso files in ./isos (or point this at any
+      # host folder, e.g. /mnt/c/Users/you/Downloads on WSL2). They appear inside
+      # the console's "Virtual Media / Image File" picker at /isos.
+      - ./isos:/isos:ro
     restart: unless-stopped
     # BMCs live on your LAN; host networking avoids NAT hassle if you run this
     # on a node. On Docker Desktop (Win11/WSL2) leave the ports mapping above

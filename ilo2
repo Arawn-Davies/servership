@@ -1,8 +1,11 @@
 #!/bin/bash
-# Open the iLO2 web UI in the loosened Firefox; log in and click
-# "Remote Console" -> the Java applet, which hands off to javaws.
+# iLO2's remote console is an in-browser Java <applet> needing NPAPI, so it must
+# run in Firefox 52 ESR (last NPAPI release) with the IcedTea Java plugin.
+# Log in, then Remote Console tab -> the applet loads inline.
 # Usage: ilo2 <ilo-ip>
 IP="${1:?usage: ilo2 <ilo-ip>}"
 export DISPLAY=:1
-echo "Opening iLO2 at https://$IP  — log in, then Remote Console > Java."
-firefox-esr "https://$IP" &
+PROFILE=/root/.ff52-ilo
+mkdir -p "$PROFILE"
+echo "Opening iLO2 at https://$IP in Firefox 52 (NPAPI/Java). Log in -> Remote Console."
+/opt/firefox52/firefox --no-remote --profile "$PROFILE" "https://$IP" &

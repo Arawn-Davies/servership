@@ -19,7 +19,7 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y --n
       novnc websockify \
       fluxbox xterm x11-utils dbus-x11 \
       firefox-esr \
-      ca-certificates wget curl procps nano \
+      ca-certificates wget curl procps nano bzip2 \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Re-enable the dead crypto the BMCs still speak -------------------------
@@ -58,6 +58,61 @@ RUN FF=/etc/firefox-esr && mkdir -p $FF && \
       'pref("security.ssl3.deprecated.rc4_128_sha", true);' \
       'pref("browser.aboutConfig.showWarning", false);' \
       > $FF/autoconfig.js 2>/dev/null || true
+
+# --- NPAPI Java plugin: stretch dropped IcedTeaPlugin.so (ships only
+# plugin.jar). Graft the native .so AND both Java jars (plugin.jar + netx.jar)
+# in from jessie's icedtea-web 1.5.3. ALL THREE must be the same version — the
+# native .so, plugin.jar and netx.jar share a private ABI; a 1.5.3 plugin.jar
+# against stretch's 1.6.2 netx.jar throws NoSuchMethodError on NetxPanel.<init>
+# and the applet never starts.
+RUN cd /tmp && \
+    POOL=http://archive.debian.org/debian/pool/main/i/icedtea-web && \
+    wget -q $POOL/icedtea-7-plugin_1.5.3-1_amd64.deb && \
+    wget -q $POOL/icedtea-netx-common_1.5.3-1_all.deb && \
+    dpkg-deb -x icedtea-7-plugin_1.5.3-1_amd64.deb /tmp/plug && \
+    dpkg-deb -x icedtea-netx-common_1.5.3-1_all.deb /tmp/netxc && \
+    mkdir -p /opt/icedtea-plugin && \
+    cp "$(find /tmp/plug -name IcedTeaPlugin.so)" /opt/icedtea-plugin/IcedTeaPlugin.so && \
+    cp "$(find /tmp/netxc -name plugin.jar)" /usr/share/icedtea-web/plugin.jar && \
+    cp "$(find /tmp/netxc -name netx.jar)"   /usr/share/icedtea-web/netx.jar && \
+    rm -rf /tmp/plug /tmp/netxc /tmp/*.deb && \
+    ls -l /opt/icedtea-plugin/IcedTeaPlugin.so /usr/share/icedtea-web/plugin.jar /usr/share/icedtea-web/netx.jar
+
+# The 1.5.3 plugin has /usr/lib/jvm/java-7-openjdk-amd64/{bin/java,lib/rt.jar}
+# HARDCODED (it was a java-7 build). We only have java-8, so point that exact
+# path at java-8's JRE — java 8 runs these applets fine. Without this the plugin
+# loads but silently never spawns the JVM (blank applet, no "needs JVM" text).
+RUN ln -sfn /usr/lib/jvm/java-8-openjdk-amd64/jre /usr/lib/jvm/java-7-openjdk-amd64 && \
+    ls -l /usr/lib/jvm/java-7-openjdk-amd64/bin/java /usr/lib/jvm/java-7-openjdk-amd64/lib/rt.jar
+
+# --- Firefox 52.9 ESR: the LAST release with NPAPI, needed for iLO2's Java
+# applet (iLO2 embeds the console as an in-browser <applet>, not a JNLP, so
+# javaws can't help — it must run inside an NPAPI-capable browser). Modern
+# firefox-esr dropped NPAPI, hence "no JVM detected". Used ONLY for iLO2.
+# Tarball is fetched host-side (stretch's wget can't do Mozilla's modern TLS)
+# and COPYed in — see .gitignore / README.
+COPY firefox-52.9.0esr.tar.bz2 /tmp/ff52.tar.bz2
+RUN tar xjf /tmp/ff52.tar.bz2 -C /opt && rm /tmp/ff52.tar.bz2 && \
+    mv /opt/firefox /opt/firefox52 && \
+    mkdir -p /opt/firefox52/browser/plugins && \
+    ln -sf /opt/icedtea-plugin/IcedTeaPlugin.so /opt/firefox52/browser/plugins/IcedTeaPlugin.so && \
+    printf '%s\n' \
+      'pref("general.config.filename", "firefox.cfg");' \
+      'pref("general.config.obscure_value", 0);' \
+      > /opt/firefox52/defaults/pref/autoconfig.js && \
+    printf '%s\n' \
+      '//' \
+      'lockPref("plugin.load_flash_only", false);' \
+      'lockPref("plugin.state.java", 2);' \
+      'lockPref("plugin.scan.plid.all", false);' \
+      'lockPref("security.tls.version.min", 1);' \
+      'lockPref("security.tls.version.enable-deprecated", true);' \
+      'lockPref("security.ssl3.rsa_des_ede3_sha", true);' \
+      'lockPref("security.ssl3.deprecated.rc4_128_sha", true);' \
+      'lockPref("xpinstall.signatures.required", false);' \
+      'lockPref("app.update.enabled", false);' \
+      'lockPref("browser.shell.checkDefaultBrowser", false);' \
+      > /opt/firefox52/firefox.cfg
 
 COPY start.sh /usr/local/bin/start.sh
 COPY ilo2 /usr/local/bin/ilo2
