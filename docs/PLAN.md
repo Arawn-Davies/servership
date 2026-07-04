@@ -139,6 +139,52 @@ Note: some iLO2 firmware does not expose fan RPM or wattage over IPMI at all
 
 ---
 
+## Feature 3: autologin to the BMC web UIs
+
+Reuse the `.env` creds so no password typing. Only the loosened Firefoxes can
+reach the BMCs' dead TLS (curl fails with exit 59 / cipher errors), so this must
+run in the browser, not a script.
+
+### Approach
+The launch scripts (`ilo2`, `idrac6`) already run in the engine with the creds in
+env. Instead of opening Firefox at the raw BMC URL, have them **write a tiny
+per-node `autologin.html` to a temp file and open that**. The page holds an
+auto-submitting form that POSTs the creds to the BMC login endpoint; the browser
+lands authenticated. Self-contained in the engine, no web-container or auth
+dependency. Cross-origin form POST is allowed; the BMC sets its own session
+cookie and the browser navigates in.
+
+```
+<body onload="document.forms[0].submit()">
+  <form method="post" action="https://<IP>/<login-endpoint>">
+    <input type="hidden" name="<user-field>"  value="<ILO_USER>">
+    <input type="hidden" name="<pass-field>"  value="<ILO_PASS>">
+  </form>
+</body>
+```
+
+### Investigation needed first (curl is blocked by the dead TLS)
+- **iLO2 (10.0.0.245):** open the login page in the engine's FF52, View Source,
+  and read the `<form>` action + the username/password `<input name=...>`. iLO2
+  firmware varies; if the login is JS-built with a nonce/challenge (not a plain
+  form POST) a static form will not work and we fall back to autofill.
+- **iDRAC6 (10.0.0.81):** endpoint is known: `POST /data/login` with
+  `user=<...>&password=<...>`, but it returns XML (`authResult`), not the UI. So:
+  submit to `/data/login` in a hidden iframe, then on load set
+  `window.location = 'https://<IP>/'` once the session cookie is set.
+
+### Caveats
+- Creds sit in a local `file://` HTML in the engine container (root-only,
+  ephemeral). Fine; they are already in the engine's env.
+- Per-firmware field names; verify each BMC once and hardcode.
+- If a BMC refuses a static-form login (challenge/nonce), fall back to seeding
+  Firefox saved logins or just prefill (username is already remembered; only the
+  password field is empty).
+
+---
+
 ## Order
-Do Feature 1 first (self-contained, testable, higher value), then Feature 2
-(needs the Step 0 diagnostic against the live iLO). Both keep tests green.
+1. Feature 1 (login/SSO): self-contained, testable, highest value.
+2. Feature 3 (BMC autologin): quick win, needs the iLO2 view-source step.
+3. Feature 2 (vendor sensors): needs the Step 0 `ipmitool sdr` diagnostic.
+All three keep tests green.
