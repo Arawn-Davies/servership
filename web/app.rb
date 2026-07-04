@@ -44,10 +44,17 @@ def gather(n)
     next if p.size < 3
     name, reading, status = p[0], p[1], p[2]
     low = reading.downcase
-    if    low.include?('degrees c') then s[:temps] << [name, reading, status]
-    elsif low.include?('rpm')       then s[:fans]  << [name, reading, status]
-    elsif low.include?('watt')      then s[:watts] = reading
-    elsif low.include?('volt')      then s[:volts] << [name, reading, status]
+    if low.include?('degrees c')
+      s[:temps] << [name, reading, status]
+    elsif low.include?('rpm') || (low.include?('percent') && name.downcase.start_with?('fan'))
+      # Dell reports fan RPM; HP iLO2 reports fan speed as a percentage ("Fan N").
+      s[:fans] << [name, reading, status]
+    elsif low.include?('watt')
+      # prefer the aggregate draw (HP "Power Meter", Dell "System Level") over
+      # the per-PSU wattage readings.
+      s[:watts] = reading if s[:watts].nil? || name =~ /meter|level|consumption|present|total/i
+    elsif low.include?('volt')
+      s[:volts] << [name, reading, status]
     end
   end
   ipmi(n, 'sel', 'elist', 'last', '4').each_line { |l| s[:sel] << l.strip if l.include?('|') }
