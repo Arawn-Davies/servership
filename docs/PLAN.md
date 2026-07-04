@@ -13,57 +13,89 @@ cleanly. No em-dashes anywhere.
 
 ---
 
-## Feature 1: single platform login
+## Feature 1: platform login (GitHub SSO + local fallback)
 
-One credential gates the whole app. BMC creds already never reach the browser
-(server-side `.env`); this just stops an unauthenticated LAN user from opening
-the UI, hitting `/power`, or opening a console.
+Gate the whole app so an unauthenticated LAN user cannot open the UI, hit
+`/power`, or open a console. Two ways in, both landing on the same
+`session[:auth] = true`:
+- **GitHub SSO (primary):** "Sign in with GitHub", restricted to an allowlist of
+  GitHub usernames (just you). No shared password to leak.
+- **Local credential (fallback):** one `PLATFORM_USER`/`PLATFORM_PASS`, for when
+  the box sits on an isolated mgmt VLAN with no internet (GitHub OAuth needs both
+  the browser AND the server to reach github.com). Omit the vars to disable it.
 
-### Config
-- Add to `.env` and `.env.example`: `PLATFORM_USER`, `PLATFORM_PASS`, and
-  `SESSION_SECRET` (long random hex).
+BMC creds already never reach the browser (server-side `.env`); this is purely
+the front door.
+
+### Config (`.env` / `.env.example`)
+- `SESSION_SECRET` (long random hex; sessions reset without it).
+- GitHub SSO: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
+  `GITHUB_ALLOWED_USERS` (comma-separated logins, e.g. `Arawn-Davies`).
+- Local fallback (optional): `PLATFORM_USER`, `PLATFORM_PASS`.
+- Register a GitHub OAuth App (github.com -> Settings -> Developer settings ->
+  OAuth Apps). Authorization callback URL:
+  `http://localhost:8088/auth/github/callback`. One callback per app, so use the
+  exact host:port you browse from (or a stable hostname).
+
+### Gems (`web/Gemfile`)
+- `omniauth`, `omniauth-github`. omniauth 2.x requires a POST request phase with
+  CSRF; use rack-protection's `AuthenticityToken` (Sinatra bundles
+  rack-protection) or `omniauth-rack_csrf`.
 
 ### Web app (`web/app.rb`, class `BMC`)
-- Enable sessions with the shared secret:
-  `use Rack::Session::Cookie, secret: ENV['SESSION_SECRET'], same_site: :lax`
-  (mounted in `config.ru` so the WS proxy sees it too, see below).
+- Session via a shared `Rack::Session::Cookie` mounted in `config.ru` (below),
+  so both the app and the WS proxy read it.
 - Routes:
-  - `GET /login` -> Tailwind login form (branded, matches the dark theme).
-  - `POST /login` -> compare with `Rack::Utils.secure_compare` (constant-time)
-    against `PLATFORM_USER`/`PLATFORM_PASS`; on success set
-    `session[:auth] = true` and redirect to `/`; on failure re-render with an
-    error.
-  - `GET /logout` -> `session.clear`, redirect to `/login`.
-- `before` filter: unless `session[:auth]` or `request.path_info == '/login'`
-  (and allow static `/novnc/*` assets), redirect to `/login`.
+  - `GET /login` -> branded page: primary "Sign in with GitHub" (POST form to
+    `/auth/github`) and, if `PLATFORM_USER` is set, a local user/pass form.
+  - `GET /auth/github/callback` (OmniAuth) -> read
+    `request.env['omniauth.auth']`; check `info.nickname` (the GitHub login) is
+    in `GITHUB_ALLOWED_USERS`. If yes: `session[:auth]=true`,
+    `session[:user]=login`, redirect `/`. If not: 403.
+  - `GET /auth/failure` -> back to `/login` with an error.
+  - `POST /login` (local) -> `Rack::Utils.secure_compare` vs PLATFORM creds ->
+    `session[:auth]=true`; else re-render.
+  - `GET /logout` -> `session.clear`, redirect `/login`.
+- `before` filter: unless `session[:auth]`, or path is `/login` or under
+  `/auth/`, redirect to `/login`.
+- Header shows `session[:user]` + a logout link once authed.
+
+### OmniAuth + session middleware (`web/config.ru`)
+- Before the `map` blocks (so it wraps BOTH the Sinatra app and the WS proxy):
+  ```
+  use Rack::Session::Cookie, secret: ENV['SESSION_SECRET'], same_site: :lax
+  use OmniAuth::Builder do
+    provider :github, ENV['GITHUB_CLIENT_ID'], ENV['GITHUB_CLIENT_SECRET'],
+             scope: 'read:user'
+  end
+  ```
 
 ### WebSocket proxy (`web/config.ru`)
-- The proxy is a separate Rack app, so protect it too or someone could open a
-  raw console stream. Mount the SAME `Rack::Session::Cookie` middleware around
-  BOTH `map` targets in `config.ru`, then in `ws_proxy` check
+- Same shared session wraps it, so in `ws_proxy` check
   `env['rack.session'] && env['rack.session'][:auth]`; if not authed, return
-  `[401, {}, ['unauthorized']]` before the faye upgrade.
-- Because both apps share one session middleware + secret, the cookie set by
-  Sinatra login is readable by the proxy.
+  `[401, {}, ['unauthorized']]` before the faye upgrade. Stops a raw console
+  stream being opened unauthenticated.
 
 ### Login page
-- Minimal centered card, `⚓ Servership`, one user + password field, submit.
-  Reuse the dark Tailwind look from `layout.erb`.
+- Centered dark Tailwind card, `⚓ Servership`, big "Sign in with GitHub" button,
+  optional local user/pass under a divider. Reuse the look from `layout.erb`.
 
 ### Tests (`web/spec/app_spec.rb`)
-- Unauthenticated `GET /dashboard` (and `/`, `/console/ilo`, `POST /power`)
-  redirects to `/login` (302).
-- After `POST /login` with correct creds, protected routes return 200.
-- Wrong creds -> stays on login (no session).
-- Helper to log in within Rack::Test (post /login, keep the cookie jar).
+- OmniAuth test mode: `OmniAuth.config.test_mode = true` and
+  `OmniAuth.config.mock_auth[:github] = OmniAuth::AuthHash.new(info: { nickname: 'Arawn-Davies' })`.
+- Unauthenticated protected routes (`/`, `/dashboard`, `/console/ilo`,
+  `POST /power`) -> 302 to `/login`.
+- Callback with an ALLOWED nickname -> session set, `/dashboard` 200.
+- Callback with a NON-allowed nickname -> 403, no session.
+- Local login (if configured): right creds pass, wrong creds stay on login.
 
 ### Gotchas
-- Set `SESSION_SECRET` in `.env` (>= 64 hex chars) or sessions reset on every
-  restart.
-- Keep `/novnc/*` static assets reachable pre-auth OR the login page is fine
-  since it needs no noVNC; simplest is to only gate the app routes and the WS
-  proxy, and leave the static noVNC files ungated (they are inert without a
-  valid WS).
+- `SESSION_SECRET` >= 64 hex chars in `.env`, or sessions reset each restart.
+- One GitHub OAuth callback URL per app: browsing from multiple hosts/ports means
+  separate OAuth apps or a standardised URL.
+- Isolated mgmt VLAN = no internet = GitHub OAuth cannot work; that is exactly
+  why the local `PLATFORM_USER`/`PLATFORM_PASS` fallback exists.
+- Leave `/novnc/*` static assets ungated (inert without a valid, authed WS).
 
 ---
 
