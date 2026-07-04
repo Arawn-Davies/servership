@@ -1,7 +1,15 @@
 <% @title = 'IPMI Dashboard'; @refresh = 20 %>
-<div class="flex items-baseline justify-between mb-6">
+<div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
   <h1 class="text-2xl font-semibold tracking-tight">IPMI Dashboard</h1>
-  <p class="text-sm text-slate-500">auto-refresh 20s · IPMI 2.0 lanplus (HP + Dell, one protocol)</p>
+  <div class="flex items-center gap-3">
+    <div class="flex items-center gap-1 text-xs">
+      <span class="text-slate-500 mr-1">Fans</span>
+      <button data-unit="native"  class="fanunit px-2 py-1 rounded border border-slate-700 text-slate-300">Native</button>
+      <button data-unit="percent" class="fanunit px-2 py-1 rounded border border-slate-700 text-slate-300">%</button>
+      <button data-unit="rpm"     class="fanunit px-2 py-1 rounded border border-slate-700 text-slate-300">RPM</button>
+    </div>
+    <span class="text-sm text-slate-500">auto-refresh 20s</span>
+  </div>
 </div>
 
 <% NODES.each do |k, n| %>
@@ -30,7 +38,7 @@
     </div>
 
     <div class="grid md:grid-cols-2 gap-5 mt-5">
-      <% [['Temperatures', s[:temps]], ['Fans', s[:fans]]].each do |title, rows| %>
+      <% [['Temperatures', s[:temps], false], ['Fans', s[:fans], true]].each do |title, rows, isfan| %>
         <div>
           <div class="text-sm font-medium mb-2"><%= title %></div>
           <div class="max-h-48 overflow-auto rounded-xl border border-slate-800">
@@ -38,7 +46,13 @@
               <% (rows || []).each do |a, b, c| %>
                 <tr class="border-b border-slate-800/60">
                   <td class="px-3 py-1.5 text-slate-300"><%= a %></td>
-                  <td class="px-3 py-1.5 text-slate-400"><%= b %></td>
+                  <% if isfan %>
+                    <% fv, fu = fan_bits(b) %>
+                    <td class="px-3 py-1.5 text-slate-400 fanval"
+                        data-orig="<%= b %>" data-val="<%= fv %>" data-unit="<%= fu %>" data-max="<%= n[:fan_max] %>"><%= b %></td>
+                  <% else %>
+                    <td class="px-3 py-1.5 text-slate-400"><%= b %></td>
+                  <% end %>
                   <td class="px-3 py-1.5 <%= c.to_s.downcase.include?('ok') ? 'text-emerald-400' : 'text-slate-500' %>"><%= c %></td>
                 </tr>
               <% end %>
@@ -75,4 +89,33 @@ function act(node, action){
     .then(r => r.text()).then(t => { alert(t); location.reload(); })
     .catch(e => alert('failed: ' + e));
 }
+
+// Fan unit toggle: HP reports %, Dell reports RPM; convert client-side using each
+// node's configured max RPM. Converted (not raw) values are prefixed with ~.
+function renderFans(unit){
+  document.querySelectorAll('.fanunit').forEach(function(b){
+    var on = b.dataset.unit === unit;
+    b.classList.toggle('bg-sky-500/15', on);
+    b.classList.toggle('border-sky-500', on);
+    b.classList.toggle('text-sky-300', on);
+  });
+  document.querySelectorAll('.fanval').forEach(function(td){
+    var v = parseFloat(td.dataset.val), u = td.dataset.unit, max = parseFloat(td.dataset.max);
+    if (unit === 'native' || isNaN(v) || !u){ td.textContent = td.dataset.orig; return; }
+    if (unit === 'percent'){
+      var pct = (u === 'percent') ? v : (max ? v / max * 100 : NaN);
+      td.textContent = isNaN(pct) ? td.dataset.orig : (u === 'percent' ? '' : '~') + (Math.round(pct * 10) / 10) + '%';
+    } else { // rpm
+      var rpm = (u === 'rpm') ? v : Math.round(v / 100 * max);
+      td.textContent = (u === 'rpm' ? '' : '~') + rpm + ' RPM';
+    }
+  });
+}
+function setFanUnit(unit){ localStorage.setItem('fanUnit', unit); renderFans(unit); }
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.fanunit').forEach(function(b){
+    b.addEventListener('click', function(){ setFanUnit(b.dataset.unit); });
+  });
+  renderFans(localStorage.getItem('fanUnit') || 'native');
+});
 </script>

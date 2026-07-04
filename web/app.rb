@@ -6,10 +6,14 @@ require 'net/http'
 NODES = {
   'ilo'   => { key: 'ilo',   label: 'SQUIDBLADE', kind: 'iLO2 · HP DL320 G6',
                accent: 'sky',
-               ip: ENV['ILO_IP'].to_s,   user: ENV['ILO_USER'].to_s,   pass: ENV['ILO_PASS'].to_s },
+               ip: ENV['ILO_IP'].to_s,   user: ENV['ILO_USER'].to_s,   pass: ENV['ILO_PASS'].to_s,
+               # HP iLO2 reports fans as %; this max lets the UI convert to ~RPM.
+               fan_max: (ENV['FAN_MAX_ILO'] || 18000).to_i },
   'idrac' => { key: 'idrac', label: 'SQUIDBOAT',  kind: 'iDRAC6 · Dell R510',
                accent: 'emerald',
-               ip: ENV['IDRAC_IP'].to_s, user: ENV['IDRAC_USER'].to_s, pass: ENV['IDRAC_PASS'].to_s },
+               ip: ENV['IDRAC_IP'].to_s, user: ENV['IDRAC_USER'].to_s, pass: ENV['IDRAC_PASS'].to_s,
+               # Dell reports fans as RPM; this max lets the UI convert to ~%.
+               fan_max: (ENV['FAN_MAX_IDRAC'] || 12000).to_i },
 }
 CONSOLE_HOST = ENV['CONSOLE_HOST'] || 'console'   # compose service running the KVM engine
 
@@ -99,6 +103,10 @@ class BMC < Sinatra::Base
     end
     def fans_ok(fans)
       fans.count { |f| f[2].to_s.downcase.include?('ok') }
+    end
+    def fan_bits(reading)   # -> ["35.28", "percent"] or ["3360", "rpm"] or ["", ""]
+      m = reading.to_s.match(/([\d.]+)\s*(percent|rpm)/i)
+      m ? [m[1], m[2].downcase] : ['', '']
     end
     def authed?      = !!session['auth']
     def current_user = session['user']
