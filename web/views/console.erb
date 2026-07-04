@@ -5,8 +5,11 @@
   <a href="/dashboard" class="ml-auto text-sm text-slate-400 hover:text-slate-200">← dashboard</a>
 </div>
 <p class="text-sm text-slate-400 mb-3">
-  Launching the <%= @node[:kind] %> console - in the embedded desktop below,
-  log in and open <b>Remote Console</b> (iLO2) or <b>Launch Virtual Console</b> (iDRAC6).
+  <% if @node[:key] == 'ilo' %>
+    Log in, then open the <b>Remote Console</b> tab.
+  <% else %>
+    Log in, then <b>Console/Media → Launch Virtual Console</b> (Java plug-in).
+  <% end %>
 </p>
 <iframe id="vnc"
   src="/novnc/vnc.html?path=websockify/<%= @node[:key] %>&autoconnect=true&resize=remote&reconnect=true"
