@@ -154,6 +154,19 @@ class BMC < Sinatra::Base
     erb :console
   end
 
+  # Reload (relaunch the console's browser fresh) / Exit (stop it).
+  post '/console/:key/:action' do
+    n = NODES[params[:key]] or halt 404, 'unknown node'
+    ep = { 'reload' => 'relaunch', 'exit' => 'kill' }[params[:action]] or halt 400, 'unknown action'
+    begin
+      Net::HTTP.post(URI("http://#{CONSOLE_HOST}:9000/#{ep}/#{n[:key]}"), '')
+    rescue StandardError
+      # engine may be momentarily unreachable; the button just no-ops
+    end
+    content_type :text
+    'ok'
+  end
+
   post '/power' do
     body = (JSON.parse(request.body.read) rescue {})
     n = NODES[body['node']] or halt 400, 'unknown node'

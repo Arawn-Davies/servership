@@ -9,6 +9,10 @@ services:
     volumes:
       # ISOs for virtual media → appear in the console's Image File picker at /isos
       - ./isos:/isos:ro
+      # Persist the FF profiles so a one-time cert-exception (and window size)
+      # survives rebuilds - accept the BMC cert once, never see it again.
+      - ilo-profile:/root/.ff52-ilo
+      - idrac-profile:/root/.ffesr-idrac
     restart: unless-stopped
 
   # Sinatra + Tailwind control panel; also serves noVNC and proxies its
@@ -24,3 +28,7 @@ services:
       - "8088:8088"          # http://localhost:8088
     depends_on: [console]
     restart: unless-stopped
+
+volumes:
+  ilo-profile:
+  idrac-profile:

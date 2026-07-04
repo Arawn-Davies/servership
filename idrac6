@@ -8,4 +8,11 @@ IP="${1:?usage: idrac6 <idrac-ip> [user] [pass]}"
 export DISPLAY="${DISPLAY:-:2}"
 PROFILE=/root/.ffesr-idrac
 mkdir -p "$PROFILE"
+
+# Open maximized (fills the display). A fresh profile otherwise starts at a
+# small default size, leaving black borders around the window in the noVNC view.
+[ -f "$PROFILE/xulstore.json" ] || printf '%s' \
+  '{"chrome://browser/content/browser.xul":{"main-window":{"screenX":"0","screenY":"0","width":"1280","height":"1024","sizemode":"maximized"}}}' \
+  > "$PROFILE/xulstore.json"
+
 exec firefox-esr --no-remote --profile "$PROFILE" "https://$IP"

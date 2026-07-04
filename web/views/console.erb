@@ -8,7 +8,36 @@
   Launching the <%= @node[:kind] %> console - in the embedded desktop below,
   log in and open <b>Remote Console</b> (iLO2) or <b>Launch Virtual Console</b> (iDRAC6).
 </p>
-<iframe
-  src="/novnc/vnc.html?path=websockify/<%= @node[:key] %>&autoconnect=true&resize=scale&reconnect=true"
+<iframe id="vnc"
+  src="/novnc/vnc.html?path=websockify/<%= @node[:key] %>&autoconnect=true&resize=remote&reconnect=true"
   class="w-full rounded-2xl border border-slate-800 bg-black"
   style="height:82vh"></iframe>
+
+<div class="flex gap-2 mt-3">
+  <button onclick="consoleAction('reload')"
+    class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-sky-500 hover:bg-sky-500/10 text-slate-200">Reload</button>
+  <button onclick="consoleAction('exit')"
+    class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-rose-500 hover:bg-rose-500/10 text-slate-200">Exit</button>
+  <span id="cstatus" class="self-center text-sm text-slate-500"></span>
+</div>
+
+<script>
+function consoleAction(action){
+  var s = document.getElementById('cstatus');
+  s.textContent = action === 'reload' ? 'reloading console...' : 'stopping console...';
+  fetch('/console/<%= @node[:key] %>/' + action, { method: 'POST' })
+    .then(function(){
+      if (action === 'reload') {
+        // give the engine a moment to relaunch Firefox, then reconnect noVNC
+        setTimeout(function(){
+          var f = document.getElementById('vnc');
+          f.src = f.src;
+          s.textContent = '';
+        }, 2000);
+      } else {
+        window.location = '/dashboard';
+      }
+    })
+    .catch(function(){ s.textContent = 'failed'; });
+}
+</script>

@@ -8,4 +8,21 @@ IP="${1:?usage: ilo2 <ilo-ip>}"
 export DISPLAY="${DISPLAY:-:1}"
 PROFILE=/root/.ff52-ilo
 mkdir -p "$PROFILE"
+
+# Open maximized (fills the display). A fresh profile otherwise starts at a
+# small default size, leaving black borders around the window in the noVNC view.
+[ -f "$PROFILE/xulstore.json" ] || printf '%s' \
+  '{"chrome://browser/content/browser.xul":{"main-window":{"screenX":"0","screenY":"0","width":"1280","height":"1024","sizemode":"maximized"}}}' \
+  > "$PROFILE/xulstore.json"
+
+# Pre-seed the iLO cert exception so the "connection is not secure" page never
+# appears (Firefox-generated override for this iLO's self-signed cert; if the
+# iLO's certificate ever changes, delete this file and accept once to regen).
+[ -f "$PROFILE/cert_override.txt" ] || printf \
+'# PSM Certificate Override Settings file\n# This is a generated file!  Do not edit.\n%s:443\tOID.2.16.840.1.101.3.4.2.1\t%s\tMUT\t%s\n' \
+  "$IP" \
+  '3A:6C:92:ED:DB:78:F6:69:9A:06:08:4A:9A:8B:A3:AE:F1:F4:F5:83:DC:21:D5:F5:36:67:CC:EF:3F:AB:1E:20' \
+  'AAAAAAAAAAAAAAARAAAAdACubPE+nghAwiYv0JFTBkMzMHIxCzAJBgNVBAYTAlVTMQ4wDAYDVQQIEwVUZXhhczEQMA4GA1UEBxMHSG91c3RvbjEgMB4GA1UEChMXSGV3bGV0dC1QYWNrYXJkIENvbXBhbnkxDDAKBgNVBAsTA0lTUzERMA8GA1UEAxMIU1FVSURJTE8=' \
+  > "$PROFILE/cert_override.txt"
+
 exec /opt/firefox52/firefox --no-remote --profile "$PROFILE" "https://$IP"

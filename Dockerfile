@@ -109,6 +109,10 @@ RUN tar xjf /tmp/ff52.tar.bz2 -C /opt && rm /tmp/ff52.tar.bz2 && \
       'lockPref("security.tls.version.enable-deprecated", true);' \
       'lockPref("security.ssl3.rsa_des_ede3_sha", true);' \
       'lockPref("security.ssl3.deprecated.rc4_128_sha", true);' \
+      'lockPref("security.ssl3.rsa_aes_128_sha", true);' \
+      'lockPref("security.ssl3.rsa_aes_256_sha", true);' \
+      'lockPref("security.ssl3.dhe_rsa_aes_128_sha", false);' \
+      'lockPref("security.ssl3.dhe_rsa_aes_256_sha", false);' \
       'lockPref("xpinstall.signatures.required", false);' \
       'lockPref("app.update.enabled", false);' \
       'lockPref("browser.shell.checkDefaultBrowser", false);' \

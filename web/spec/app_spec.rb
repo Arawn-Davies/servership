@@ -130,5 +130,30 @@ RSpec.describe BMC do
         expect(last_response.status).to eq(404)
       end
     end
+
+    describe 'POST /console/:key/:action (reload/exit)' do
+      before { allow(Net::HTTP).to receive(:post) }
+
+      it 'reloads a console' do
+        post '/console/ilo/reload'
+        expect(last_response).to be_ok
+        expect(Net::HTTP).to have_received(:post)
+      end
+
+      it 'exits a console' do
+        post '/console/idrac/exit'
+        expect(last_response).to be_ok
+      end
+
+      it 'rejects an unknown action' do
+        post '/console/ilo/bogus'
+        expect(last_response.status).to eq(400)
+      end
+
+      it '404s an unknown node' do
+        post '/console/nope/reload'
+        expect(last_response.status).to eq(404)
+      end
+    end
   end
 end
