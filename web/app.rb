@@ -269,6 +269,13 @@ class BMC < Sinatra::Base
     'ok'
   end
 
+  # --- serial console (IPMI Serial-over-LAN via xterm.js + /solws) ----------
+  get '/serial/:id' do
+    @node = Store.find(params[:id]) or halt 404, 'unknown node'
+    halt 400, 'node has no BMC ip' if @node[:ip].to_s.empty?
+    erb :serial
+  end
+
   post '/power' do
     body = (JSON.parse(request.body.read) rescue {})
     n = Store.find(body['node'].to_s) or halt 400, 'unknown node'

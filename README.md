@@ -21,6 +21,10 @@ Confirmed against **HP ProLiant DL320 G6** (iLO2) and **Dell PowerEdge R510** (i
   chassis identify LED and clear-SEL.
 - **Graphical KVM consoles** for iLO2 and iDRAC6, each **isolated on its own
   page**, embedded inline via noVNC. No ancient browser or Java on your machine.
+- **Serial / text consoles** in the browser (xterm.js): POST, boot loader, and a
+  Linux login shell over the BMC's serial console, no Java at all. Two switchable
+  transports per node, **SSH** (iLO2 `textcons` / iDRAC6 `console com2`) and
+  **IPMI Serial-over-LAN**.
 - **Virtual media**: mount ISOs into the console from a host folder.
 
 ## Architecture
@@ -30,12 +34,16 @@ Confirmed against **HP ProLiant DL320 G6** (iLO2) and **Dell PowerEdge R510** (i
   ┌──────────────────────────────────────────────────────────────┐
   browser ──http:8088──▶  web  (Sinatra + Tailwind)
                           │  · IPMI dashboard + power   (ipmitool)
-                          │  · serves noVNC 1.4
-                          │  · proxies the VNC WebSocket
+                          │  · serves noVNC 1.4 + xterm.js
+                          │  · proxies the VNC + serial WebSockets
                           │
-                          ├─ws /websockify/ilo──▶ engine :5901 ─┐
-                          └─ws /websockify/idrac─▶ engine :5902 ─┤
-                                                                  │
+                          ├─ws /websockify/ilo──▶ engine :5901 ─┐  (KVM)
+                          ├─ws /websockify/idrac─▶ engine :5902 ─┤
+                          │                                      │
+                          ├─ws /solws/<node> ─┐  (serial: a PTY  │
+                          │                   │   in the web      │
+                          │                   ▼   container)      │
+                          │        ipmitool SOL / ssh textcons ───┤
         IPMI 2.0 (lanplus) ───────────────────────────────┐      │
                                                            ▼      ▼
                                                     iLO2 / iDRAC6 BMCs
@@ -46,8 +54,10 @@ Two containers, one compose project:
 
 - **`web`** (`ruby:3-slim`): the whole UI and the only thing you open in a
   browser. Sinatra + Tailwind, `ipmitool` for the dashboard and power actions,
-  serves modern **noVNC 1.4**, and proxies the VNC WebSocket in-process
-  (faye-websocket) so there is a single origin and a single port.
+  serves modern **noVNC 1.4** and **xterm.js**, and proxies both the VNC and the
+  serial-console WebSockets in-process (faye-websocket) so there is a single
+  origin and a single port. Serial consoles run as a PTY-hosted `ipmitool` or
+  `ssh` process right here in `web` (no legacy stack needed for text).
 - **`engine`/`console`** (`debian:stretch`): the legacy KVM engine. **One Xvnc
   display per BMC** (`:1`/5901 for iLO2, `:2`/5902 for iDRAC6) so the consoles
   are fully isolated, each under a kiosk window manager so the console fills the
@@ -104,7 +114,24 @@ jessie, noVNC, ipmitool) is fetched during the build.
 - **Consoles** (`/console/ilo`, `/console/idrac`): click a card and the console
   launches automatically and paints inline, fullscreen. Each BMC is isolated on
   its own page. For iLO2: log in, open **Remote Console**. For iDRAC6: log in,
-  **Console/Media -> Launch Virtual Console** (plug-in type Java).
+  **Console/Media -> Launch Virtual Console** (plug-in type Java). The Java
+  security prompts (unverified signature, HTTPS cert, "remote locations") are
+  pre-suppressed in the engine image, so the applet launches without clicking
+  through dialogs.
+- **Serial consoles** (`/serial/<node>`): a browser text terminal to the server's
+  serial console, from POST all the way to a login shell, no Java. Each node with
+  a BMC IP gets a **Serial** link on the dashboard. HP + Dell nodes offer an
+  **SSH ⇄ SOL** toggle:
+  - **SSH** — the BMC's own text console over its SSH CLI: iLO2 `textcons` (mirrors
+    the VGA text buffer, repaints on attach) and iDRAC6 `console com2` (the COM2
+    serial stream, with the serial history buffer replayed on connect).
+  - **SOL** — raw IPMI Serial-over-LAN (`ipmitool sol activate`).
+
+  To get a **login shell** (not just POST/firmware screens) the *server* needs a
+  serial console: BIOS/RBSU serial redirection on **COM2** and a getty on
+  `ttyS1` — on systemd, `console=ttyS1,115200n8` on the kernel command line spawns
+  `serial-getty@ttyS1` automatically. See the serial-console notes in
+  [docs/PLAN.md](docs/PLAN.md).
 - **Virtual media**: drop `.iso` files into `./isos` (or repoint the volume in
   `docker-compose.yml`, e.g. `/mnt/c/Users/you/Downloads` on WSL2). They appear
   in the console's **Virtual Media / Image File** picker at `/isos`.
@@ -148,10 +175,25 @@ The fiddly bits, documented so a rebuild never becomes archaeology:
   `/usr/lib/jvm/java-7-openjdk-amd64` at java-8's JRE.
 - **`java.security`** has its `*.disabledAlgorithms` lists blanked to re-enable
   the dead crypto the BMCs speak.
+- **Java security prompts are pre-cleared** in the engine image so consoles launch
+  without dialogs: `deployment.properties` sets `security.level=ALLOW_UNSIGNED`,
+  `manifest.attributes.check=NONE` (the "uses resources from remote locations"
+  ALACA check), `security.mixcode=DISABLE`, and `itw.ignorecertissues=true` (the
+  HTTPS "cert cannot be verified" dialog); and a pre-seeded IcedTea trust store
+  (`trusted.certs`, JKS, captured after ticking "Always trust this publisher") is
+  baked in, with the runtime `security/` dir on the `icedtea-trust` volume so new
+  trust decisions persist across rebuilds.
 - **noVNC 1.4** is served by Sinatra; the WebSocket proxy uses **faye-websocket**
-  and must call `Faye::WebSocket.load_adapter('thin')` (else thin writes a bogus
-  second 101 and browsers reject it), and the app runs in **production** mode so
-  `Rack::Lint` does not 500 the WebSocket upgrade.
+  in `rack.hijack` mode under **puma** with a raw `TCPSocket` bridge (no
+  EventMachine), and the app runs in **production** mode so `Rack::Lint` does not
+  500 the WebSocket upgrade.
+- **Serial consoles** bridge a browser xterm.js to a PTY-hosted console process in
+  the `web` container over `ws /solws/<node>` (auth-gated). SSH mode logs into the
+  BMC CLI and auto-types its console command (`textcons` at `hpiLO->`,
+  `console -h com2` at `/admin1->`) with the iLO/iDRAC's legacy SSH crypto
+  re-enabled via `ssh -o` overrides; SOL mode runs `ipmitool sol activate` with a
+  deactivate-first/deactivate-on-close guard. One session per node, new connection
+  takes over.
 - **One Xvnc display per BMC** gives each console total isolation.
 
 ## Security

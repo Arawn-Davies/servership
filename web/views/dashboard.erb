@@ -68,6 +68,9 @@
         <% if n[:console] %>
           <a href="/console/<%= n[:console] %>" class="text-<%= n[:accent] %>-400 hover:underline">Open console →</a>
         <% end %>
+        <% unless n[:ip].to_s.empty? %>
+          <a href="/serial/<%= n[:id] %>" class="text-slate-300 hover:underline">Serial →</a>
+        <% end %>
         <button class="edit-btn text-slate-400 hover:text-slate-200"
           data-id="<%= n[:id] %>" data-label="<%= n[:label] %>" data-ip="<%= n[:ip] %>"
           data-user="<%= n[:user] %>" data-vendor="<%= n[:vendor] %>" data-fanmax="<%= n[:fan_max] %>">Edit</button>

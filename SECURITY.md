@@ -29,9 +29,10 @@ filter (`web/app.rb`). Two methods, either or both:
 > set local creds or GitHub before exposing it anywhere. This is intentional for
 > first-boot on a trusted workstation, but it is a foot-gun worth calling out.
 
-The noVNC WebSocket proxy is gated too: `config.ru`'s bridge returns `401` unless
-the Rack session is authenticated, so the console stream cannot be reached
-without a login even though it lives at a different mount point.
+Both WebSocket bridges are gated too: `config.ru`'s noVNC proxy (`/websockify`)
+and the serial-console bridge (`/solws`) each return `401` unless the Rack session
+is authenticated, so neither the KVM stream nor the serial console can be reached
+without a login even though they live at different mount points.
 
 ## Sessions
 
@@ -70,7 +71,18 @@ broadly, add a proper CSRF token (e.g. `Rack::Protection::AuthenticityToken`).
 
 IPMI is invoked through `IO.popen` with an **argument array**, never a shell
 string (`web/app.rb`, `ipmi`). A password or field containing `;`, `!`, `$`, or
-spaces is passed verbatim as one argv element and cannot inject a command.
+spaces is passed verbatim as one argv element and cannot inject a command. The
+serial-console bridge (`config.ru`) likewise spawns `ipmitool`/`ssh` with
+`PTY.spawn(*argv)` — no shell — so BMC credentials in the argv are injection-safe.
+
+**Accepted risk — BMC SSH legacy crypto.** The serial SSH transport re-enables
+old key-exchange/cipher/host-key algorithms (`diffie-hellman-group1-sha1`,
+`ssh-rsa`, `aes128-cbc`) because that is all iLO2/iDRAC6 firmware offers, and it
+does not verify the BMC host key (`StrictHostKeyChecking=no`,
+`UserKnownHostsFile=/dev/null`). This is the same accepted posture as the dead TLS
+the KVM path uses: it applies only to *outbound* connections to BMCs on the
+trusted management VLAN, never to how clients reach Bastion. Keep the BMCs
+isolated (below) so this weak channel is not exposed.
 
 ## Output encoding (XSS)
 

@@ -13,7 +13,45 @@ cleanly. No em-dashes anywhere.
 
 ---
 
-## Feature 1: platform login (GitHub SSO + local fallback)
+## Serial console — host-side enablement (feature shipped; this is the operator recipe)
+
+The in-browser serial console (`/serial/<node>`, SSH `textcons`/`console com2` or
+IPMI SOL) is built and needs nothing more in Bastion. To get more than a blank
+screen you configure the **server**: firmware serial redirection for POST/BIOS,
+and a serial **getty** for a Linux login shell. On both an HP DL320 G6 and a Dell
+R510 the BMC serial console is **COM2 = ttyS1**, so the Linux side is identical.
+
+**BIOS/firmware (per box, one-time):**
+- **Dell R510 (iDRAC6):** F2 → Serial Communication → **On with Console
+  Redirection via COM2** (Serial Device2=COM2), Failsafe Baud Rate **115200**,
+  Remote Terminal Type VT100/VT220, Redirection After Boot **Enabled**. Redirecting
+  via COM1 sends POST out the physical DB9, not to SOL.
+- **HP DL320 G6 (iLO2):** RBSU → BIOS Serial Console & EMS → BIOS Serial Console
+  **Port = COM2** (the iLO Virtual Serial Port; pin it, do not leave Auto), Baud
+  **115200**, EMS Console **disabled** (Windows-only). Note: iLO2 also has SSH
+  `textcons`, which mirrors the VGA text buffer regardless of BIOS redirection.
+
+**Linux getty + boot messages (`/etc/default/grub`, then `update-grub` + reboot):**
+```
+GRUB_CMDLINE_LINUX_DEFAULT="<keep existing flags> console=tty0 console=ttyS1,115200n8 nomodeset"
+GRUB_TERMINAL="serial console"
+GRUB_SERIAL_COMMAND="serial --unit=1 --speed=115200 --word=8 --parity=no --stop=1"
+GRUB_GFXPAYLOAD_LINUX=text
+```
+- `console=ttyS1` makes systemd auto-spawn `serial-getty@ttyS1` every boot
+  (persistent; no separate `systemctl enable` needed).
+- **Keep the box's existing cmdline flags** (e.g. `pci=nomsi` on hpsa G6 boxes);
+  appending only, never blanking. **Drop `quiet`** or the boot looks hung after
+  "Loading initial ramdisk" over serial.
+- `nomodeset` + `GFXPAYLOAD=text` keep the console true text mode so iLO2
+  `textcons` keeps mirroring after boot instead of showing "graphics mode".
+- `--unit=1` = ttyS1 = COM2 on both vendors. SQUIDBLADE is a Proxmox host
+  (10.0.0.20:8006); its console had KMS before this change, hence the earlier
+  "unsupported resolution".
+
+---
+
+## Feature 1: platform login (GitHub SSO + local fallback)  — DONE
 
 Gate the whole app so an unauthenticated LAN user cannot open the UI, hit
 `/power`, or open a console. Two ways in, both landing on the same

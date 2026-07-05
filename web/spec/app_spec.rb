@@ -156,6 +156,28 @@ RSpec.describe BMC do
       end
     end
 
+    describe 'GET /serial/:id' do
+      it 'renders the SOL terminal for a node with an ip' do
+        post '/servers', label: 'SOLBOX', ip: '10.0.0.7', user: 'u', pass: 'p', vendor: 'other'
+        id = Store.all.find { |s| s[:label] == 'SOLBOX' }[:id]
+        get "/serial/#{id}"
+        expect(last_response).to be_ok
+        expect(last_response.body).to include("/solws/#{id}", 'xterm')
+      end
+
+      it '400s a node without a BMC ip' do
+        post '/servers', label: 'NOIP', ip: '', vendor: 'other'
+        id = Store.all.find { |s| s[:label] == 'NOIP' }[:id]
+        get "/serial/#{id}"
+        expect(last_response.status).to eq(400)
+      end
+
+      it '404s an unknown node' do
+        get '/serial/bogus'
+        expect(last_response.status).to eq(404)
+      end
+    end
+
     describe 'server CRUD' do
       it 'creates a server' do
         post '/servers', label: 'NEWBOX', ip: '10.0.0.5', user: 'admin', pass: 'pw', vendor: 'other', fan_max: '9000'

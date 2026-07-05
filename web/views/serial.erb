@@ -1,0 +1,106 @@
+<% @title = "#{@node[:label]} serial" %>
+<% hp     = @node[:vendor] == 'hp' %>
+<% ssh_ok = %w[hp dell].include?(@node[:vendor]) %>
+<% via    = (ssh_ok && params['via'] != 'sol') ? 'ssh' : 'sol' %>
+<% label  = via == 'sol' ? 'IPMI SOL' : (hp ? 'iLO textcons (SSH)' : 'iDRAC console com2 (SSH)') %>
+<link rel="stylesheet" href="/xterm/xterm.css">
+<div class="flex items-start gap-3 mb-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight"><%= @node[:label] %></h1>
+    <div class="text-sm text-slate-500 mt-0.5">Text console <span class="text-slate-600">· <%= label %> ·</span> <%= @node[:ip] %></div>
+  </div>
+  <a href="/dashboard" class="ml-auto text-sm text-slate-400 hover:text-slate-200">← dashboard</a>
+</div>
+<p class="text-sm text-slate-400 mb-3">
+  <% if via == 'ssh' && hp %>
+    Live mirror of the server's VGA text screen via the iLO. Shows whatever is
+    on screen in text mode (POST, RBSU, a Linux console); graphical modes show
+    a "not in text mode" notice instead.
+  <% elsif via == 'ssh' %>
+    The COM2 serial stream over the iDRAC's SSH CLI, with the serial history
+    buffer replayed on connect (so you land on recent output, not a blank
+    screen). Same content as SOL over a steadier TCP transport. Needs BIOS
+    serial redirection via COM2 and a getty on
+    <code class="text-slate-300">ttyS1</code>.
+  <% else %>
+    Text console over the server's serial port. Blank screen is normal until the
+    host sends something: BIOS output needs serial redirection enabled in setup,
+    and a Linux login prompt needs a getty on the BMC's serial port, usually COM2
+    (<code class="text-slate-300">serial-getty@ttyS1</code> at 115200).
+    Press Enter to poke an already-running getty.
+  <% end %>
+</p>
+
+<div id="term" class="rounded-2xl border border-slate-800 bg-black p-2" style="height:72vh"></div>
+
+<div class="flex gap-2 mt-3 items-center">
+  <button id="btn-reconnect" onclick="reconnect()"
+    class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-sky-500 hover:bg-sky-500/10 text-slate-200">Reconnect</button>
+  <button onclick="disconnect(); window.location='/dashboard'"
+    class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-rose-500 hover:bg-rose-500/10 text-slate-200">Exit</button>
+  <% if ssh_ok %>
+  <div class="flex items-center gap-2 ml-2">
+    <a href="/serial/<%= @node[:id] %>"
+      class="px-4 py-2 rounded-lg text-sm border <%= via == 'ssh' ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-slate-700 text-slate-200 hover:border-sky-500' %>">SSH</a>
+    <a href="/serial/<%= @node[:id] %>?via=sol"
+      class="px-4 py-2 rounded-lg text-sm border <%= via == 'sol' ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-slate-700 text-slate-200 hover:border-sky-500' %>">SOL</a>
+  </div>
+  <% end %>
+  <span id="sstatus" class="text-sm text-slate-500"></span>
+</div>
+
+<script src="/xterm/xterm.js"></script>
+<script>
+var term = new Terminal({
+  cursorBlink: true, fontSize: 14, scrollback: 5000,
+  theme: { background: '#000000' }
+});
+term.open(document.getElementById('term'));
+
+// These consoles paint on a fixed 80-col text grid (VGA text / serial), so we
+// hold that geometry and grow the font until the screen fills the box - no
+// reflow, no letterboxing.
+var fixedRows = <%= via == 'ssh' ? 25 : 24 %>;
+function stretchFixed(){
+  var box = document.getElementById('term');
+  var screen = box.querySelector('.xterm-screen');
+  if (!screen || !screen.clientWidth) return;
+  var k = Math.min((box.clientWidth - 20) / screen.clientWidth,
+                   (box.clientHeight - 20) / screen.clientHeight);
+  var next = Math.max(8, Math.floor(term.options.fontSize * k));
+  if (next !== term.options.fontSize){
+    term.options.fontSize = next;
+    setTimeout(stretchFixed, 0);   // re-check: cell metrics change per size
+  }
+}
+term.resize(80, fixedRows);
+setTimeout(stretchFixed, 0);
+window.addEventListener('resize', stretchFixed);
+
+var ws = null, wanted = false;
+var sbar = document.getElementById("sstatus");
+
+function connect(){
+  wanted = true;
+  sbar.textContent = 'connecting...';
+  var proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + location.host + '/solws/<%= @node[:id] %>?via=<%= via %>');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen    = function(){ sbar.textContent = 'connected'; term.focus(); };
+  ws.onmessage = function(e){ term.write(new Uint8Array(e.data)); };
+  ws.onclose   = function(){
+    sbar.textContent = wanted ? 'disconnected (Reconnect to retry)' : 'disconnected';
+    term.write('\r\n\x1b[33m[console session closed]\x1b[0m\r\n');
+  };
+  ws.onerror   = function(){ sbar.textContent = 'connection error'; };
+}
+function disconnect(){ wanted = false; if (ws) ws.close(); }
+function reconnect(){ if (ws) ws.close(); term.reset(); setTimeout(connect, 300); }
+
+term.onData(function(d){
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(d);
+});
+
+connect();
+window.addEventListener('beforeunload', disconnect);
+</script>
