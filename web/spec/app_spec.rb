@@ -155,5 +155,32 @@ RSpec.describe BMC do
         expect(last_response.status).to eq(404)
       end
     end
+
+    describe 'server CRUD' do
+      it 'creates a server' do
+        post '/servers', label: 'NEWBOX', ip: '10.0.0.5', user: 'admin', pass: 'pw', vendor: 'other', fan_max: '9000'
+        expect(last_response.status).to eq(302)
+        added = Store.all.find { |s| s[:label] == 'NEWBOX' }
+        expect(added).not_to be_nil
+        expect(added[:ip]).to eq('10.0.0.5')
+        expect(added[:id]).not_to be_empty
+      end
+
+      it 'updates a server and keeps the password when left blank' do
+        before_pass = Store.find('ilo')[:pass]
+        post '/servers', id: 'ilo', label: 'RENAMED', ip: '10.0.0.9', user: 'u', pass: '', vendor: 'hp', fan_max: '18000'
+        s = Store.find('ilo')
+        expect(s[:label]).to eq('RENAMED')
+        expect(s[:ip]).to eq('10.0.0.9')
+        expect(s[:pass]).to eq(before_pass)
+      end
+
+      it 'deletes a server' do
+        post '/servers', label: 'TODELETE', ip: '10.0.0.6', vendor: 'other'
+        id = Store.all.find { |s| s[:label] == 'TODELETE' }[:id]
+        post "/servers/#{id}/delete"
+        expect(Store.find(id)).to be_nil
+      end
+    end
   end
 end

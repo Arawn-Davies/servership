@@ -1,6 +1,6 @@
-<% @title = 'IPMI Dashboard'; @refresh = 20 %>
+<% @title = 'Dashboard'; @refresh = 20 %>
 <div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
-  <h1 class="text-2xl font-semibold tracking-tight">IPMI Dashboard</h1>
+  <h1 class="text-2xl font-semibold tracking-tight">Dashboard</h1>
   <div class="flex items-center gap-3">
     <div class="flex items-center gap-1 text-xs">
       <span class="text-slate-500 mr-1">Fans</span>
@@ -8,12 +8,52 @@
       <button data-unit="percent" class="fanunit px-2 py-1 rounded border border-slate-700 text-slate-300">%</button>
       <button data-unit="rpm"     class="fanunit px-2 py-1 rounded border border-slate-700 text-slate-300">RPM</button>
     </div>
-    <span class="text-sm text-slate-500">auto-refresh 20s</span>
+    <button onclick="openForm(true)"
+      class="px-3 py-1.5 rounded-lg text-sm border border-emerald-600 text-emerald-300 hover:bg-emerald-500/10">+ Add server</button>
   </div>
 </div>
 
-<% NODES.each do |k, n| %>
-  <% s = @nodes[k] || {} %>
+<form id="srvform" method="post" action="/servers"
+      class="hidden mb-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+  <input type="hidden" name="id" id="f_id">
+  <div class="text-sm font-medium mb-3" id="f_title">Add server</div>
+  <div class="grid sm:grid-cols-3 gap-3">
+    <label class="text-xs text-slate-400 block">Label
+      <input name="label" id="f_label" required
+        class="mt-1 w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-100"></label>
+    <label class="text-xs text-slate-400 block">BMC IP
+      <input name="ip" id="f_ip" required
+        class="mt-1 w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-100"></label>
+    <label class="text-xs text-slate-400 block">Vendor
+      <select name="vendor" id="f_vendor"
+        class="mt-1 w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-100">
+        <option value="hp">HP (fans %)</option>
+        <option value="dell">Dell (fans RPM)</option>
+        <option value="other">Other</option>
+      </select></label>
+    <label class="text-xs text-slate-400 block">Username
+      <input name="user" id="f_user" autocomplete="off"
+        class="mt-1 w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-100"></label>
+    <label class="text-xs text-slate-400 block">Password <span id="f_passhint" class="text-slate-600"></span>
+      <input name="pass" id="f_pass" type="password" autocomplete="new-password"
+        class="mt-1 w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-100"></label>
+    <label class="text-xs text-slate-400 block">Fan max RPM
+      <input name="fan_max" id="f_fanmax" value="12000"
+        class="mt-1 w-full rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-100"></label>
+  </div>
+  <div class="flex gap-2 mt-4">
+    <button class="px-4 py-2 rounded-lg text-sm bg-emerald-600 text-white hover:bg-emerald-500">Save</button>
+    <button type="button" onclick="closeForm()"
+      class="px-4 py-2 rounded-lg text-sm border border-slate-700 text-slate-300">Cancel</button>
+  </div>
+</form>
+
+<% if @servers.empty? %>
+  <div class="text-slate-500 text-sm">No servers yet. Click <b>+ Add server</b> to add a BMC.</div>
+<% end %>
+
+<% @servers.each do |n| %>
+  <% s = @nodes[n[:id]] || {} %>
   <% sc = status_class(s[:power], s[:ok]) %>
   <section class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 mb-6">
     <div class="flex items-center gap-3 flex-wrap">
@@ -21,10 +61,21 @@
       <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold
         <%= sc == 'on' ? 'bg-emerald-500/15 text-emerald-400' :
              sc == 'off' ? 'bg-rose-500/15 text-rose-400' : 'bg-slate-500/15 text-slate-400' %>">
-        <%= s[:power] %>
+        <%= s[:power] || 'unknown' %>
       </span>
-      <span class="text-sm text-slate-500"><%= n[:kind] %> · <%= n[:ip].empty? ? 'no ip' : n[:ip] %></span>
-      <a href="/console/<%= k %>" class="ml-auto text-sm text-<%= n[:accent] %>-400 hover:underline">Open console →</a>
+      <span class="text-sm text-slate-500"><%= n[:kind] %> · <%= n[:ip].to_s.empty? ? 'no ip' : n[:ip] %></span>
+      <div class="ml-auto flex items-center gap-3 text-sm">
+        <% if n[:console] %>
+          <a href="/console/<%= n[:console] %>" class="text-<%= n[:accent] %>-400 hover:underline">Open console →</a>
+        <% end %>
+        <button class="edit-btn text-slate-400 hover:text-slate-200"
+          data-id="<%= n[:id] %>" data-label="<%= n[:label] %>" data-ip="<%= n[:ip] %>"
+          data-user="<%= n[:user] %>" data-vendor="<%= n[:vendor] %>" data-fanmax="<%= n[:fan_max] %>">Edit</button>
+        <form method="post" action="/servers/<%= n[:id] %>/delete" class="inline"
+          onsubmit="return confirm('Delete <%= n[:label] %>?')">
+          <button class="text-rose-400 hover:text-rose-300">Delete</button>
+        </form>
+      </div>
     </div>
 
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
@@ -73,7 +124,7 @@
       <% [['on','Power On','emerald'], ['soft','Soft Shutdown','slate'], ['cycle','Power Cycle','amber'],
           ['reset','Reset','amber'], ['off','Force Off','rose'], ['identify','Identify LED','indigo'],
           ['selclear','Clear SEL','slate']].each do |act, lbl, col| %>
-        <button onclick="act('<%= k %>','<%= act %>')"
+        <button onclick="act('<%= n[:id] %>','<%= act %>')"
           class="px-3 py-1.5 rounded-lg text-sm border border-slate-700 hover:border-<%= col %>-500 hover:bg-<%= col %>-500/10 text-slate-200"><%= lbl %></button>
       <% end %>
     </div>
@@ -90,8 +141,39 @@ function act(node, action){
     .catch(e => alert('failed: ' + e));
 }
 
-// Fan unit toggle: HP reports %, Dell reports RPM; convert client-side using each
-// node's configured max RPM. Converted (not raw) values are prefixed with ~.
+// add/edit server form
+function openForm(reset){
+  var f = document.getElementById('srvform');
+  if (reset){
+    f.reset();
+    document.getElementById('f_id').value = '';
+    document.getElementById('f_title').textContent = 'Add server';
+    document.getElementById('f_passhint').textContent = '';
+    document.getElementById('f_fanmax').value = '12000';
+  }
+  f.classList.remove('hidden');
+  document.getElementById('f_label').focus();
+}
+function closeForm(){ document.getElementById('srvform').classList.add('hidden'); }
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.edit-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.getElementById('f_id').value     = b.dataset.id;
+      document.getElementById('f_label').value  = b.dataset.label;
+      document.getElementById('f_ip').value     = b.dataset.ip;
+      document.getElementById('f_user').value   = b.dataset.user;
+      document.getElementById('f_vendor').value = b.dataset.vendor || 'other';
+      document.getElementById('f_fanmax').value = b.dataset.fanmax;
+      document.getElementById('f_pass').value   = '';
+      document.getElementById('f_passhint').textContent = '(leave blank to keep)';
+      document.getElementById('f_title').textContent = 'Edit ' + b.dataset.label;
+      openForm(false);
+      window.scrollTo(0, 0);
+    });
+  });
+});
+
+// fan unit toggle (HP % <-> Dell RPM), converted values prefixed ~
 function renderFans(unit){
   document.querySelectorAll('.fanunit').forEach(function(b){
     var on = b.dataset.unit === unit;
@@ -105,7 +187,7 @@ function renderFans(unit){
     if (unit === 'percent'){
       var pct = (u === 'percent') ? v : (max ? v / max * 100 : NaN);
       td.textContent = isNaN(pct) ? td.dataset.orig : (u === 'percent' ? '' : '~') + (Math.round(pct * 10) / 10) + '%';
-    } else { // rpm
+    } else {
       var rpm = (u === 'rpm') ? v : Math.round(v / 100 * max);
       td.textContent = (u === 'rpm' ? '' : '~') + rpm + ' RPM';
     }

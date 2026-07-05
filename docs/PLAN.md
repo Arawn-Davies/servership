@@ -1,4 +1,4 @@
-# Servership - implementation plan (next up)
+# Bastion - implementation plan (next up)
 
 Two features to build next. Written before a WSL2 RAM bump so we can resume
 cleanly. No em-dashes anywhere.
@@ -77,7 +77,7 @@ the front door.
   stream being opened unauthenticated.
 
 ### Login page
-- Centered dark Tailwind card, `⚓ Servership`, big "Sign in with GitHub" button,
+- Centered dark Tailwind card, `🛡 Bastion`, big "Sign in with GitHub" button,
   optional local user/pass under a divider. Reuse the look from `layout.erb`.
 
 ### Tests (`web/spec/app_spec.rb`)

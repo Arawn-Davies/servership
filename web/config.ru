@@ -14,6 +14,28 @@ require './app'
 OmniAuth.config.allowed_request_methods = %i[post]
 OmniAuth.config.silence_get_warning = true
 
+# Behind a TLS-terminating reverse proxy (e.g. Nginx Proxy Manager) the app only
+# ever sees plain HTTP, so without this the OAuth redirect_uri and any absolute
+# URL come out as http:// and Secure cookies would never be set. Opt in by
+# setting TRUST_PROXY=1 - only enable it when the app is actually reached solely
+# through a proxy you control that sets X-Forwarded-Proto.
+TRUST_PROXY = ENV['TRUST_PROXY'] == '1'
+
+class TrustProxy
+  def initialize(app) = @app = app
+
+  def call(env)
+    proto = env['HTTP_X_FORWARDED_PROTO'].to_s.split(',').first.to_s.strip
+    unless proto.empty?
+      env['rack.url_scheme'] = proto
+      env['HTTPS']           = (proto == 'https' ? 'on' : 'off')
+      fport = env['HTTP_X_FORWARDED_PORT'].to_s.split(',').first.to_s.strip
+      env['SERVER_PORT'] = fport.empty? ? (proto == 'https' ? '443' : '80') : fport
+    end
+    @app.call(env)
+  end
+end
+
 CONSOLE = ENV['CONSOLE_HOST'] || 'console'
 # Each BMC has its own Xvnc display/port so the consoles are fully isolated.
 # noVNC connects to /websockify/<node>; we route to the matching port.
@@ -46,9 +68,11 @@ ws_proxy = lambda do |env|
   ws.rack_response
 end
 
+use TrustProxy if TRUST_PROXY
 use Rack::Session::Cookie,
     secret: (ENV['SESSION_SECRET'].to_s.empty? ? SecureRandom.hex(64) : ENV['SESSION_SECRET']),
     same_site: :lax,
+    secure: TRUST_PROXY,          # only mark Secure when we know we're behind TLS
     expire_after: 60 * 60 * 12
 use OmniAuth::Builder do
   provider :github, ENV['GITHUB_CLIENT_ID'], ENV['GITHUB_CLIENT_SECRET'], scope: 'read:user'

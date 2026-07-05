@@ -1,18 +1,21 @@
 <% @title = "#{@node[:label]} console" %>
-<div class="flex items-center gap-3 mb-4">
-  <h1 class="text-xl font-semibold tracking-tight"><%= @node[:label] %> <span class="text-slate-500 font-normal">console</span></h1>
-  <span class="text-sm text-slate-500"><%= @node[:kind] %></span>
+<div class="flex items-start gap-3 mb-4">
+  <% iface, rest = @node[:kind].to_s.split(' · ', 2) %>
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight"><%= @node[:label] %></h1>
+    <div class="text-sm text-slate-500 mt-0.5"><%= iface %> <span class="text-slate-600">console</span><%= rest ? " · #{rest}" : '' %></div>
+  </div>
   <a href="/dashboard" class="ml-auto text-sm text-slate-400 hover:text-slate-200">← dashboard</a>
 </div>
 <p class="text-sm text-slate-400 mb-3">
-  <% if @node[:key] == 'ilo' %>
+  <% if @ckey == 'ilo' %>
     Log in, then open the <b>Remote Console</b> tab.
   <% else %>
     Log in, then <b>Console/Media → Launch Virtual Console</b> (Java plug-in).
   <% end %>
 </p>
 <iframe id="vnc"
-  src="/novnc/vnc.html?path=websockify/<%= @node[:key] %>&autoconnect=true&resize=remote&reconnect=true"
+  src="/novnc/vnc.html?path=websockify/<%= @ckey %>&autoconnect=true&resize=remote&reconnect=true"
   class="w-full rounded-2xl border border-slate-800 bg-black"
   style="height:82vh"></iframe>
 
@@ -34,13 +37,13 @@ function consoleAction(action){
     // it queries IPMI on load).
     s.textContent = 'stopping console...';
     f.src = 'about:blank';
-    fetch('/console/<%= @node[:key] %>/exit', { method: 'POST' });
+    fetch('/console/<%= @ckey %>/exit', { method: 'POST' });
     setTimeout(function(){ window.location = '/'; }, 250);
     return;
   }
   // reload: relaunch Firefox on the engine, then reconnect noVNC
   s.textContent = 'reloading console...';
-  fetch('/console/<%= @node[:key] %>/reload', { method: 'POST' })
+  fetch('/console/<%= @ckey %>/reload', { method: 'POST' })
     .then(function(){
       setTimeout(function(){ f.src = f.src; s.textContent = ''; }, 2000);
     })

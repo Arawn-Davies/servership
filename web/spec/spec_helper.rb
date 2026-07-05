@@ -7,6 +7,9 @@ ENV['GITHUB_ALLOWED_USERS'] ||= 'Arawn-Davies'
 ENV['GITHUB_CLIENT_ID']     ||= 'testid'
 ENV['GITHUB_CLIENT_SECRET'] ||= 'testsecret'
 
+require 'tmpdir'
+ENV['SERVERS_PATH'] ||= File.join(Dir.tmpdir, 'bastion_servers_test.json')
+
 require 'rack/test'
 require 'omniauth'
 require 'omniauth-github'
@@ -42,4 +45,6 @@ RSpec.configure do |c|
   c.include AppHelper
   c.expect_with(:rspec) { |e| e.syntax = :expect }
   c.after { OmniAuth.config.mock_auth[:github] = nil }
+  # fresh server store each example (re-seeds the defaults on next read)
+  c.before { File.delete(ENV['SERVERS_PATH']) if File.exist?(ENV['SERVERS_PATH']) }
 end

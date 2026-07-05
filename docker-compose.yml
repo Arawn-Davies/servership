@@ -24,11 +24,18 @@ services:
     environment:
       CONSOLE_HOST: console
       VNC_PORT: "5901"
+    volumes:
+      # persists the CRUD server list (seeded from .env on first run)
+      - servers-data:/data
     ports:
-      - "8088:8088"          # http://localhost:8088
+      # Bind to loopback by default so the app is NOT exposed on the LAN - a
+      # reverse proxy (NPM) on this host fronts it with TLS. Set WEB_BIND in
+      # .env (e.g. 0.0.0.0) only if you must reach :8088 directly off-box.
+      - "${WEB_BIND:-127.0.0.1}:8088:8088"
     depends_on: [console]
     restart: unless-stopped
 
 volumes:
   ilo-profile:
   idrac-profile:
+  servers-data:

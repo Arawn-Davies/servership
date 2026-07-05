@@ -1,30 +1,89 @@
 require 'sinatra/base'
 require 'json'
 require 'net/http'
+require 'securerandom'
+require 'fileutils'
 
-# --- nodes (creds injected via .env / docker env_file) ----------------------
-NODES = {
-  'ilo'   => { key: 'ilo',   label: 'SQUIDBLADE', kind: 'iLO2 · HP DL320 G6',
-               accent: 'sky',
-               ip: ENV['ILO_IP'].to_s,   user: ENV['ILO_USER'].to_s,   pass: ENV['ILO_PASS'].to_s,
-               # HP iLO2 reports fans as %; this max lets the UI convert to ~RPM.
-               fan_max: (ENV['FAN_MAX_ILO'] || 18000).to_i },
-  'idrac' => { key: 'idrac', label: 'SQUIDBOAT',  kind: 'iDRAC6 · Dell R510',
-               accent: 'emerald',
-               ip: ENV['IDRAC_IP'].to_s, user: ENV['IDRAC_USER'].to_s, pass: ENV['IDRAC_PASS'].to_s,
-               # Dell reports fans as RPM; this max lets the UI convert to ~%.
-               fan_max: (ENV['FAN_MAX_IDRAC'] || 12000).to_i },
-}
 CONSOLE_HOST = ENV['CONSOLE_HOST'] || 'console'   # compose service running the KVM engine
+STORE_PATH   = ENV['SERVERS_PATH'] || '/data/servers.json'
 
 # --- platform auth (front door; BMC creds stay server-side regardless) -------
 GITHUB_ALLOWED = ENV['GITHUB_ALLOWED_USERS'].to_s.split(',').map { |s| s.strip.downcase }.reject(&:empty?)
 PLATFORM_USER  = ENV['PLATFORM_USER'].to_s
 PLATFORM_PASS  = ENV['PLATFORM_PASS'].to_s
 
+# --- server store: BMC entries (CRUD), persisted to a JSON volume ------------
+# Seeded on first run from the .env pair, which also own the two wired-up
+# consoles (via :console => 'ilo' / 'idrac'). New entries are dashboard-only.
+module Store
+  MUTEX = Mutex.new
+
+  def self.defaults
+    [
+      { id: 'ilo', label: 'SQUIDBLADE', kind: 'iLO2 · HP DL320 G6', vendor: 'hp',
+        accent: 'sky', ip: ENV['ILO_IP'].to_s, user: ENV['ILO_USER'].to_s,
+        pass: ENV['ILO_PASS'].to_s, fan_max: (ENV['FAN_MAX_ILO'] || 18000).to_i,
+        console: 'ilo' },
+      { id: 'idrac', label: 'SQUIDBOAT', kind: 'iDRAC6 · Dell R510', vendor: 'dell',
+        accent: 'emerald', ip: ENV['IDRAC_IP'].to_s, user: ENV['IDRAC_USER'].to_s,
+        pass: ENV['IDRAC_PASS'].to_s, fan_max: (ENV['FAN_MAX_IDRAC'] || 12000).to_i,
+        console: 'idrac' },
+    ]
+  end
+
+  def self.all
+    MUTEX.synchronize { load! }
+  end
+
+  def self.find(id)
+    all.find { |s| s[:id] == id.to_s }
+  end
+
+  def self.save(p)     # create (no matching id) or update (existing id)
+    MUTEX.synchronize do
+      list = load!
+      i = list.index { |s| s[:id] == p['id'].to_s }
+      attrs = {
+        label:   p['label'].to_s.strip,
+        ip:      p['ip'].to_s.strip,
+        user:    p['user'].to_s,
+        vendor:  (%w[hp dell other].include?(p['vendor']) ? p['vendor'] : 'other'),
+        fan_max: (p['fan_max'].to_s.strip.empty? ? 12000 : p['fan_max'].to_i),
+      }
+      attrs[:pass] = p['pass'].to_s unless p['pass'].to_s.empty?  # keep existing pass if blank
+      if i
+        list[i] = list[i].merge(attrs)
+      else
+        attrs[:pass]  ||= ''
+        attrs[:id]      = SecureRandom.hex(4)
+        attrs[:accent]  = 'slate'
+        attrs[:kind]    = "#{attrs[:vendor] == 'other' ? 'BMC' : attrs[:vendor].upcase}"
+        list << attrs
+      end
+      write!(list)
+    end
+  end
+
+  def self.delete(id)  = MUTEX.synchronize { write!(load!.reject { |s| s[:id] == id.to_s }) }
+
+  # internal (caller holds MUTEX)
+  def self.load!
+    return write!(defaults) unless File.exist?(STORE_PATH)
+    JSON.parse(File.read(STORE_PATH), symbolize_names: true)
+  rescue StandardError
+    []
+  end
+
+  def self.write!(list)
+    FileUtils.mkdir_p(File.dirname(STORE_PATH))
+    File.write(STORE_PATH, JSON.pretty_generate(list))
+    list
+  end
+end
+
 # --- IPMI (no shell: array exec, so a '!' in a password is safe) -------------
 def ipmi(n, *args)
-  return '' if n[:ip].empty?
+  return '' if n[:ip].to_s.empty?
   cmd = ['ipmitool', '-I', 'lanplus', '-H', n[:ip], '-U', n[:user], '-P', n[:pass],
          '-N', '2', '-R', '1', *args]
   out = ''
@@ -51,11 +110,8 @@ def gather(n)
     if low.include?('degrees c')
       s[:temps] << [name, reading, status]
     elsif low.include?('rpm') || (low.include?('percent') && name.downcase.start_with?('fan'))
-      # Dell reports fan RPM; HP iLO2 reports fan speed as a percentage ("Fan N").
       s[:fans] << [name, reading, status]
     elsif low.include?('watt')
-      # prefer the aggregate draw (HP "Power Meter", Dell "System Level") over
-      # the per-PSU wattage readings.
       s[:watts] = reading if s[:watts].nil? || name =~ /meter|level|consumption|present|total/i
     elsif low.include?('volt')
       s[:volts] << [name, reading, status]
@@ -67,13 +123,12 @@ end
 
 def gather_all
   out = {}
-  NODES.map { |k, n| Thread.new { out[k] = gather(n) } }.each(&:join)
+  Store.all.map { |n| Thread.new { out[n[:id]] = gather(n) } }.each(&:join)
   out
 end
 
 # Background poller: refresh the IPMI snapshot every ~12s so the dashboard serves
-# a cached view instantly instead of blocking on ipmitool (each iLO IPMI session
-# is slow) on every load and every 20s auto-refresh.
+# a cached view instantly instead of blocking on ipmitool on every load.
 STATUS = { data: {} }
 unless ENV['RACK_ENV'] == 'test'
   Thread.new do
@@ -92,10 +147,10 @@ class BMC < Sinatra::Base
   set :environment, :production
   set :views,         File.expand_path('views',  __dir__)
   set :public_folder, File.expand_path('public', __dir__)   # serves /novnc/*
-  # Auto HTML-escape all <%= %> output (via Erubi) so BMC-derived strings
-  # (sensor names, SEL entries) and usernames can't inject markup. Intentional
-  # HTML uses <%== %> (only the layout's yield).
+  # Auto HTML-escape all <%= %> output (via Erubi); intentional HTML uses <%== %>.
   set :erb, escape_html: true
+
+  CONSOLE_KEYS = %w[ilo idrac].freeze   # the two wired-up KVM consoles
 
   helpers do
     def status_class(power, ok)
@@ -108,7 +163,7 @@ class BMC < Sinatra::Base
     def fans_ok(fans)
       fans.count { |f| f[2].to_s.downcase.include?('ok') }
     end
-    def fan_bits(reading)   # -> ["35.28", "percent"] or ["3360", "rpm"] or ["", ""]
+    def fan_bits(reading)
       m = reading.to_s.match(/([\d.]+)\s*(percent|rpm)/i)
       m ? [m[1], m[2].downcase] : ['', '']
     end
@@ -119,9 +174,6 @@ class BMC < Sinatra::Base
     def auth_enabled?   = github_enabled? || local_enabled?
   end
 
-  # Gate everything behind login once any auth method is configured. Static
-  # /novnc/* assets are served before filters run, so they stay reachable
-  # (inert without an authed WebSocket). /auth/* is OmniAuth's territory.
   before do
     next unless auth_enabled?
     p = request.path_info
@@ -148,7 +200,6 @@ class BMC < Sinatra::Base
     end
   end
 
-  # OmniAuth GitHub callback: allow only listed usernames.
   get '/auth/github/callback' do
     login = request.env.dig('omniauth.auth', 'info', 'nickname').to_s
     if !login.empty? && GITHUB_ALLOWED.include?(login.downcase)
@@ -176,30 +227,43 @@ class BMC < Sinatra::Base
   get('/') { erb :landing }
 
   get '/dashboard' do
-    # Serve the cached snapshot (instant); only block on a live gather if the
-    # poller has not produced one yet (first load right after boot).
-    @nodes = STATUS[:data].empty? ? gather_all : STATUS[:data]
+    @servers = Store.all
+    @nodes   = STATUS[:data].empty? ? gather_all : STATUS[:data]
     erb :dashboard
   end
 
+  # --- server CRUD (dashboard entries) --------------------------------------
+  post '/servers' do        # create (blank id) or update (existing id)
+    Store.save(params)
+    redirect '/dashboard'
+  end
+
+  post '/servers/:id/delete' do
+    Store.delete(params[:id])
+    redirect '/dashboard'
+  end
+
+  # --- consoles (the two wired-up KVM engines) ------------------------------
   get '/console/:key' do
-    @node = NODES[params[:key]] or halt 404, 'unknown node'
+    halt 404, 'unknown console' unless CONSOLE_KEYS.include?(params[:key])
+    @ckey = params[:key]
+    @node = Store.all.find { |s| s[:console] == @ckey } ||
+            { label: @ckey.upcase, kind: 'BMC console', console: @ckey }
     begin
-      Net::HTTP.post(URI("http://#{CONSOLE_HOST}:9000/launch/#{@node[:key]}"), '')
+      Net::HTTP.post(URI("http://#{CONSOLE_HOST}:9000/launch/#{@ckey}"), '')
     rescue StandardError
       # engine may be warming up; the embedded noVNC still shows the desktop
     end
     erb :console
   end
 
-  # Reload (relaunch the console's browser fresh) / Exit (stop it).
   post '/console/:key/:action' do
-    n = NODES[params[:key]] or halt 404, 'unknown node'
+    halt 404 unless CONSOLE_KEYS.include?(params[:key])
     ep = { 'reload' => 'relaunch', 'exit' => 'kill' }[params[:action]] or halt 400, 'unknown action'
     begin
-      Net::HTTP.post(URI("http://#{CONSOLE_HOST}:9000/#{ep}/#{n[:key]}"), '')
+      Net::HTTP.post(URI("http://#{CONSOLE_HOST}:9000/#{ep}/#{params[:key]}"), '')
     rescue StandardError
-      # engine may be momentarily unreachable; the button just no-ops
+      # engine momentarily unreachable; the button just no-ops
     end
     content_type :text
     'ok'
@@ -207,7 +271,7 @@ class BMC < Sinatra::Base
 
   post '/power' do
     body = (JSON.parse(request.body.read) rescue {})
-    n = NODES[body['node']] or halt 400, 'unknown node'
+    n = Store.find(body['node'].to_s) or halt 400, 'unknown node'
     cmd = {
       'on'    => %w[chassis power on],    'off'   => %w[chassis power off],
       'cycle' => %w[chassis power cycle], 'reset' => %w[chassis power reset],

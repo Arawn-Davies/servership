@@ -1,9 +1,9 @@
-# ⚓ Servership
+# 🛡 Bastion
 
-> **All hands on your server fleet.**
-> One bridge for legacy lights-out management: **iLO2**, **iDRAC6**, a unified **IPMI dashboard**, and full **KVM consoles**, from any modern browser.
+> **A hardened front for legacy iron.**
+> One guarded entrance to lights-out management: **iLO2**, **iDRAC6**, a unified **IPMI dashboard**, and full **KVM consoles**, from any modern browser.
 
-Servership is a self-hosted control panel for out-of-band management of older
+Bastion is a self-hosted control panel for out-of-band management of older
 servers whose native tooling (ActiveX consoles, NPAPI Java applets, dead TLS
 ciphers) modern browsers and operating systems can no longer run. It quarantines
 all of that legacy in a container and gives you one clean, modern web UI.
@@ -26,7 +26,7 @@ Confirmed against **HP ProLiant DL320 G6** (iLO2) and **Dell PowerEdge R510** (i
 ## Architecture
 
 ```
-                         Servership
+                          Bastion
   ┌──────────────────────────────────────────────────────────────┐
   browser ──http:8088──▶  web  (Sinatra + Tailwind)
                           │  · IPMI dashboard + power   (ipmitool)
@@ -66,7 +66,7 @@ Modern machines simply cannot drive these BMCs anymore:
 - The BMCs speak **SSLv3 / TLS 1.0 with RC4 / 3DES**, which modern TLS refuses.
 - Their **self-signed certs** are long expired.
 
-Servership contains all of that in the engine container so your daily driver
+Bastion contains all of that in the engine container so your daily driver
 stays clean and modern.
 
 ## Quickstart
@@ -115,14 +115,20 @@ jessie, noVNC, ipmitool) is fetched during the build.
 |---|---|
 | `ILO_IP` / `ILO_USER` / `ILO_PASS` | iLO2 management address and login |
 | `IDRAC_IP` / `IDRAC_USER` / `IDRAC_PASS` | iDRAC6 management address and login |
+| `PLATFORM_USER` / `PLATFORM_PASS` | local login for the web UI |
+| `GITHUB_CLIENT_ID` / `_SECRET` / `GITHUB_ALLOWED_USERS` | GitHub OAuth login + allow-list |
+| `SESSION_SECRET` | signs the session cookie (`openssl rand -hex 32`) |
+| `TRUST_PROXY` | `1` when behind a TLS reverse proxy (see SECURITY.md) |
+| `WEB_BIND` | host interface for `8088` (default `127.0.0.1`) |
 
 Values are read literally (no quotes). BMC credentials live only server-side and
-never reach the browser.
+never reach the browser. Set a login (`PLATFORM_*` or GitHub) before exposing the
+app: with neither configured it runs open.
 
 ## Tests
 
 ```bash
-docker exec servership-web bundle exec rspec   # or bmc-web, per container_name
+docker exec bmc-web bundle exec rspec
 ```
 
 RSpec + Rack::Test cover routing, the power-action allow-list, the launch
@@ -150,15 +156,26 @@ The fiddly bits, documented so a rebuild never becomes archaeology:
 
 ## Security
 
-- BMC credentials are **server-side only** (`.env`), never sent to the browser.
-- **Put your BMCs on an isolated management VLAN.** IPMI 2.0 on this hardware
-  generation has unfixable weaknesses (RAKP hash disclosure, cipher-0); network
-  isolation is the correct mitigation and how it is meant to be deployed.
-- noVNC currently has no VNC password (LAN + same-origin). A single platform
-  login is the next planned addition.
+Full posture, accepted risks, and hardening steps are in **[SECURITY.md](SECURITY.md)**.
+In brief:
+
+- **Authenticated front door.** Every route is gated by GitHub OAuth (allow-list)
+  and/or a local login (constant-time compare). The console WebSocket is gated too.
+- **BMC credentials are server-side only**, never sent to the browser. They live
+  in `.env` and the `servers-data` volume (`servers.json`, plaintext, same trust
+  level as `.env`), both outside git and the image.
+- **No shell for IPMI** (argv array, injection-safe); **auto-escaped output**
+  (Erubi) mitigates XSS; **`SameSite=Lax`** cookies are the CSRF mitigation.
+- **Loopback by default:** `8088` binds to `127.0.0.1`; front it with a TLS
+  reverse proxy (set `TRUST_PROXY=1`). See SECURITY.md for the NPM recipe
+  (Websockets ON, long read timeout, OAuth callback URL).
+- **Put your BMCs on an isolated management VLAN.** IPMI 2.0 on this hardware has
+  unfixable weaknesses; network isolation is the intended mitigation.
+- **CI** runs RSpec + blocking `bundler-audit` (dependency CVEs) on every push.
 
 ## Roadmap
 
-- Single platform login (one credential gating the whole app).
 - Vendor-aware sensor naming so HP ambient/fan fields populate like Dell's.
 - More nodes / BMC vendors.
+- Dynamic KVM consoles for CRUD-added servers (currently the two seeded consoles
+  are the wired ones).

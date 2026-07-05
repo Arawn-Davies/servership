@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <% if @refresh %><meta http-equiv="refresh" content="<%= @refresh %>"><% end %>
-  <title><%= @title ? "#{@title} · Servership" : 'Servership' %></title>
+  <title><%= @title ? "#{@title} · Bastion" : 'Bastion' %></title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { darkMode: 'class',
@@ -17,7 +17,7 @@
   <header class="sticky top-0 z-10 backdrop-blur bg-slate-950/80 border-b border-slate-800">
     <div class="max-w-6xl mx-auto px-5 h-14 flex items-center gap-6">
       <a href="/" class="font-semibold tracking-tight flex items-center gap-2">
-        <span class="text-lg">⚓</span> Servership
+        <span class="text-lg">🛡</span> Bastion
       </a>
       <% if authed? %>
       <nav class="ml-auto flex items-center gap-1 text-sm">
