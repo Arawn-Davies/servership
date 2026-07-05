@@ -13,6 +13,10 @@ services:
       # survives rebuilds - accept the BMC cert once, never see it again.
       - ilo-profile:/root/.ff52-ilo
       - idrac-profile:/root/.ffesr-idrac
+      # Persist IcedTea-Web trust decisions ("Always trust this publisher") so
+      # Java applet/JNLP signature prompts stay dismissed across recreates.
+      # Seeded on first creation from the image's pre-baked trusted.certs.
+      - icedtea-trust:/root/.config/icedtea-web/security
     restart: unless-stopped
 
   # Sinatra + Tailwind control panel; also serves noVNC and proxies its
@@ -38,4 +42,5 @@ services:
 volumes:
   ilo-profile:
   idrac-profile:
+  icedtea-trust:
   servers-data:

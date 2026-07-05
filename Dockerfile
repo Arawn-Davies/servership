@@ -39,6 +39,9 @@ RUN mkdir -p /root/.config/icedtea-web && \
       'deployment.security.https.crl=false' \
       'deployment.security.expired.warning=false' \
       'deployment.security.jsse.https.certrevocation.check=false' \
+      'deployment.security.mixcode=DISABLE' \
+      'deployment.security.itw.ignorecertissues=true' \
+      'deployment.manifest.attributes.check=NONE' \
       > /root/.config/icedtea-web/deployment.properties
 
 # --- noVNC client: distro ships 2013-era 0.4 (too old for Firefox), but the
@@ -117,6 +120,14 @@ RUN tar xjf /tmp/ff52.tar.bz2 -C /opt && rm /tmp/ff52.tar.bz2 && \
       'lockPref("app.update.enabled", false);' \
       'lockPref("browser.shell.checkDefaultBrowser", false);' \
       > /opt/firefox52/firefox.cfg
+
+# Pre-seed the applet/JNLP signing certs (HPE iLO2 + Dell iDRAC6) so the
+# "digital signature cannot be verified - Run?" dialog never appears, even in
+# a fresh container. Keystore captured from a live container after ticking
+# "Always trust content from this publisher" (JKS, default password changeit).
+# To add a new BMC's cert: tick the box once in its dialog, then
+#   docker cp bmc-console:/root/.config/icedtea-web/security/trusted.certs .
+COPY trusted.certs /root/.config/icedtea-web/security/trusted.certs
 
 COPY start.sh /usr/local/bin/start.sh
 COPY ilo2 /usr/local/bin/ilo2
