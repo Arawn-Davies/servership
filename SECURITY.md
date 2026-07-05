@@ -137,4 +137,4 @@ CI (`.github/workflows/ci.yml`) runs on every push/PR:
 ## Reporting
 
 This is a personal/self-hosted project. Open an issue at
-`github.com/Arawn-Davies/servership` for security concerns.
+`github.com/Arawn-Davies/bastion` for security concerns.
