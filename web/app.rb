@@ -269,9 +269,20 @@ class BMC < Sinatra::Base
     'ok'
   end
 
-  # --- serial console (IPMI Serial-over-LAN via xterm.js + /solws) ----------
+  # --- serial console hub (server picker + xterm.js shell + power) ----------
+  # /serial       -> the picker with nothing selected
+  # /serial/:id   -> same page with that server's shell + controls loaded
+  get '/serial' do
+    @servers = Store.all
+    @status  = STATUS[:data]
+    @node    = nil
+    erb :serial
+  end
+
   get '/serial/:id' do
-    @node = Store.find(params[:id]) or halt 404, 'unknown node'
+    @servers = Store.all
+    @status  = STATUS[:data]
+    @node    = Store.find(params[:id]) or halt 404, 'unknown node'
     halt 400, 'node has no BMC ip' if @node[:ip].to_s.empty?
     erb :serial
   end

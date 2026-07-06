@@ -1,54 +1,112 @@
-<% @title = "#{@node[:label]} serial" %>
-<% hp     = @node[:vendor] == 'hp' %>
-<% ssh_ok = %w[hp dell].include?(@node[:vendor]) %>
-<% via    = (ssh_ok && params['via'] != 'sol') ? 'ssh' : 'sol' %>
-<% label  = via == 'sol' ? 'IPMI SOL' : (hp ? 'iLO textcons (SSH)' : 'iDRAC console com2 (SSH)') %>
-<link rel="stylesheet" href="/xterm/xterm.css">
-<div class="flex items-start gap-3 mb-4">
-  <div>
-    <h1 class="text-2xl font-bold tracking-tight"><%= @node[:label] %></h1>
-    <div class="text-sm text-slate-500 mt-0.5">Text console <span class="text-slate-600">· <%= label %> ·</span> <%= @node[:ip] %></div>
-  </div>
-  <a href="/dashboard" class="ml-auto text-sm text-slate-400 hover:text-slate-200">← dashboard</a>
-</div>
-<p class="text-sm text-slate-400 mb-3">
-  <% if via == 'ssh' && hp %>
-    Live mirror of the server's VGA text screen via the iLO. Shows whatever is
-    on screen in text mode (POST, RBSU, a Linux console); graphical modes show
-    a "not in text mode" notice instead.
-  <% elsif via == 'ssh' %>
-    The COM2 serial stream over the iDRAC's SSH CLI, with the serial history
-    buffer replayed on connect (so you land on recent output, not a blank
-    screen). Same content as SOL over a steadier TCP transport. Needs BIOS
-    serial redirection via COM2 and a getty on
-    <code class="text-slate-300">ttyS1</code>.
+<% @title = @node ? "#{@node[:label]} console" : 'Console' %>
+<% @refresh = 20 unless @node %>  <%# live LEDs on the picker; never refresh once a shell is open (would kill the WS) %>
+<% if @node %>
+  <% hp     = @node[:vendor] == 'hp' %>
+  <% ssh_ok = %w[hp dell].include?(@node[:vendor]) %>
+  <% via    = (ssh_ok && params['via'] != 'sol') ? 'ssh' : 'sol' %>
+  <% label  = via == 'sol' ? 'IPMI SOL' : (hp ? 'iLO textcons (SSH)' : 'iDRAC console com2 (SSH)') %>
+  <link rel="stylesheet" href="/xterm/xterm.css">
+<% end %>
+
+<div class="flex gap-5 items-start">
+  <!-- server picker -->
+  <aside class="w-56 shrink-0">
+    <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-2 px-1">Servers</div>
+    <div class="space-y-1">
+      <% (@servers || []).each do |s| %>
+        <% st = (@status && @status[s[:id]]) || {} %>
+        <% sc = status_class(st[:power], st[:ok]) %>
+        <% led = sc == 'on' ? 'bg-emerald-500 shadow-[0_0_6px] shadow-emerald-500/70' :
+                 sc == 'off' ? 'bg-rose-500 shadow-[0_0_6px] shadow-rose-500/60' : 'bg-slate-600' %>
+        <% active = @node && s[:id] == @node[:id] %>
+        <% if s[:ip].to_s.empty? %>
+          <div class="flex items-center gap-2.5 px-3 py-2 rounded-lg opacity-50" title="no BMC IP">
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-700"></span>
+            <span class="min-w-0">
+              <span class="block text-sm text-slate-300 truncate"><%= s[:label] %></span>
+              <span class="block text-[11px] text-slate-600">no BMC ip</span>
+            </span>
+          </div>
+        <% else %>
+          <a href="/serial/<%= s[:id] %>"
+             class="flex items-center gap-2.5 px-3 py-2 rounded-lg border <%= active ? 'border-sky-500 bg-sky-500/10' : 'border-transparent hover:bg-slate-800/60' %>">
+            <span class="w-2.5 h-2.5 rounded-full <%= led %>"
+                  title="<%= sc == 'on' ? 'powered on' : sc == 'off' ? 'powered off' : 'unreachable' %>"></span>
+            <span class="min-w-0">
+              <span class="block text-sm <%= active ? 'text-sky-300' : 'text-slate-200' %> truncate"><%= s[:label] %></span>
+              <span class="block text-[11px] text-slate-500 truncate"><%= s[:ip] %></span>
+            </span>
+          </a>
+        <% end %>
+      <% end %>
+    </div>
+  </aside>
+
+  <!-- shell + controls (or a prompt to pick one) -->
+  <div class="flex-1 min-w-0">
+  <% if @node %>
+    <div class="flex items-start gap-3 mb-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight"><%= @node[:label] %></h1>
+        <div class="text-sm text-slate-500 mt-0.5">Text console <span class="text-slate-600">· <%= label %> ·</span> <%= @node[:ip] %></div>
+      </div>
+      <a href="/dashboard" class="ml-auto text-sm text-slate-400 hover:text-slate-200">dashboard →</a>
+    </div>
+    <p class="text-sm text-slate-400 mb-3">
+      <% if via == 'ssh' && hp %>
+        Live mirror of the server's VGA text screen via the iLO. Shows whatever is
+        on screen in text mode (POST, RBSU, a Linux console); graphical modes show
+        a "not in text mode" notice instead.
+      <% elsif via == 'ssh' %>
+        The COM2 serial stream over the iDRAC's SSH CLI, with the serial history
+        buffer replayed on connect (so you land on recent output, not a blank
+        screen). Same content as SOL over a steadier TCP transport. Needs BIOS
+        serial redirection via COM2 and a getty on
+        <code class="text-slate-300">ttyS1</code>.
+      <% else %>
+        Text console over the server's serial port. Blank screen is normal until the
+        host sends something: BIOS output needs serial redirection enabled in setup,
+        and a Linux login prompt needs a getty on the BMC's serial port, usually COM2
+        (<code class="text-slate-300">serial-getty@ttyS1</code> at 115200).
+        Press Enter to poke an already-running getty.
+      <% end %>
+    </p>
+
+    <div id="term" class="rounded-2xl border border-slate-800 bg-black p-2" style="height:72vh"></div>
+
+    <div class="flex flex-wrap gap-2 mt-3 items-center">
+      <button id="btn-reconnect" onclick="reconnect()"
+        class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-sky-500 hover:bg-sky-500/10 text-slate-200">Reconnect</button>
+      <button onclick="disconnect(); window.location='/serial'"
+        class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-rose-500 hover:bg-rose-500/10 text-slate-200">Exit</button>
+      <% if ssh_ok %>
+      <div class="flex items-center gap-2 ml-2">
+        <a href="/serial/<%= @node[:id] %>"
+          class="px-4 py-2 rounded-lg text-sm border <%= via == 'ssh' ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-slate-700 text-slate-200 hover:border-sky-500' %>">SSH</a>
+        <a href="/serial/<%= @node[:id] %>?via=sol"
+          class="px-4 py-2 rounded-lg text-sm border <%= via == 'sol' ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-slate-700 text-slate-200 hover:border-sky-500' %>">SOL</a>
+      </div>
+      <% end %>
+      <span class="mx-1 text-slate-700">|</span>
+      <div class="flex items-center gap-2">
+        <button onclick="power('on')"
+          class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-emerald-500 hover:bg-emerald-500/10 text-slate-200">Power On</button>
+        <button onclick="power('soft')"
+          class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-amber-500 hover:bg-amber-500/10 text-slate-200">Soft Shutdown</button>
+        <button onclick="power('off')"
+          class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-rose-500 hover:bg-rose-500/10 text-slate-200">Force Off</button>
+      </div>
+      <span id="sstatus" class="text-sm text-slate-500"></span>
+    </div>
   <% else %>
-    Text console over the server's serial port. Blank screen is normal until the
-    host sends something: BIOS output needs serial redirection enabled in setup,
-    and a Linux login prompt needs a getty on the BMC's serial port, usually COM2
-    (<code class="text-slate-300">serial-getty@ttyS1</code> at 115200).
-    Press Enter to poke an already-running getty.
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/40 flex items-center justify-center text-slate-500 text-sm" style="height:72vh">
+      Select a server on the left to open its console.
+    </div>
   <% end %>
-</p>
-
-<div id="term" class="rounded-2xl border border-slate-800 bg-black p-2" style="height:72vh"></div>
-
-<div class="flex gap-2 mt-3 items-center">
-  <button id="btn-reconnect" onclick="reconnect()"
-    class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-sky-500 hover:bg-sky-500/10 text-slate-200">Reconnect</button>
-  <button onclick="disconnect(); window.location='/dashboard'"
-    class="px-4 py-2 rounded-lg text-sm border border-slate-700 hover:border-rose-500 hover:bg-rose-500/10 text-slate-200">Exit</button>
-  <% if ssh_ok %>
-  <div class="flex items-center gap-2 ml-2">
-    <a href="/serial/<%= @node[:id] %>"
-      class="px-4 py-2 rounded-lg text-sm border <%= via == 'ssh' ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-slate-700 text-slate-200 hover:border-sky-500' %>">SSH</a>
-    <a href="/serial/<%= @node[:id] %>?via=sol"
-      class="px-4 py-2 rounded-lg text-sm border <%= via == 'sol' ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-slate-700 text-slate-200 hover:border-sky-500' %>">SOL</a>
   </div>
-  <% end %>
-  <span id="sstatus" class="text-sm text-slate-500"></span>
 </div>
 
+<% if @node %>
 <script src="/xterm/xterm.js"></script>
 <script>
 var term = new Terminal({
@@ -97,10 +155,30 @@ function connect(){
 function disconnect(){ wanted = false; if (ws) ws.close(); }
 function reconnect(){ if (ws) ws.close(); term.reset(); setTimeout(connect, 300); }
 
+// Chassis power straight from the console (same /power endpoint the dashboard
+// uses); result echoes in the status line so you stay on the console view.
+function power(action){
+  if (action === 'off' && !confirm('Force off <%= @node[:label] %>? (hard power cut)')) return;
+  var busy = { on: 'powering on...', soft: 'requesting soft shutdown...', off: 'forcing off...' };
+  sbar.textContent = busy[action] || 'working...';
+  fetch('/power', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ node: '<%= @node[:id] %>', action: action }) })
+    .then(function(r){ return r.text(); })
+    .then(function(t){ sbar.textContent = t; })
+    .catch(function(){ sbar.textContent = 'power action failed'; });
+}
+
 term.onData(function(d){
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(d);
+  // xterm auto-answers cursor-position queries (ESC[6n) with ESC[<row>;<col>R.
+  // On a dumb serial/console relay those synthetic replies get sent to the host
+  // as keystrokes and the login prompt echoes them back as jibberish (the BMC's
+  // console/history replay is full of stale ESC[6n). Users never type these, so
+  // drop cursor-position reports before forwarding.
+  d = d.replace(/\x1b\[\d+;\d+R/g, '');
+  if (d && ws && ws.readyState === WebSocket.OPEN) ws.send(d);
 });
 
 connect();
 window.addEventListener('beforeunload', disconnect);
 </script>
+<% end %>
