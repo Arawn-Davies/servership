@@ -1,3 +1,14 @@
+# --- Fetch Firefox 52 ESR on a modern base -----------------------------------
+# The stretch stage below can't reach archive.mozilla.org (its wget/curl predate
+# Mozilla's current TLS), so grab the last NPAPI Firefox here and COPY it across.
+# This makes the image self-contained: `docker compose build` (and Portainer
+# building straight from git) needs no host-side tarball.
+FROM debian:bookworm-slim AS fffetch
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && curl -fsSLo /firefox-52.9.0esr.tar.bz2 \
+      https://archive.mozilla.org/pub/firefox/releases/52.9.0esr/linux-x86_64/en-US/firefox-52.9.0esr.tar.bz2 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Legacy BMC console appliance - launches iLO2 (HP) and iDRAC6 (Dell) Java
 # KVM applets that modern OSes/browsers can no longer run. You view its
 # desktop from a modern browser via noVNC; it does the dead-crypto handshake.
@@ -94,7 +105,7 @@ RUN ln -sfn /usr/lib/jvm/java-8-openjdk-amd64/jre /usr/lib/jvm/java-7-openjdk-am
 # firefox-esr dropped NPAPI, hence "no JVM detected". Used ONLY for iLO2.
 # Tarball is fetched host-side (stretch's wget can't do Mozilla's modern TLS)
 # and COPYed in - see .gitignore / README.
-COPY firefox-52.9.0esr.tar.bz2 /tmp/ff52.tar.bz2
+COPY --from=fffetch /firefox-52.9.0esr.tar.bz2 /tmp/ff52.tar.bz2
 RUN tar xjf /tmp/ff52.tar.bz2 -C /opt && rm /tmp/ff52.tar.bz2 && \
     mv /opt/firefox /opt/firefox52 && \
     mkdir -p /opt/firefox52/browser/plugins && \

@@ -81,31 +81,25 @@ stays clean and modern.
 
 ## Quickstart
 
-1. **Fetch Firefox 52 ESR** (host-side; it is gitignored, ~56 MB, and stretch's
-   old wget cannot negotiate Mozilla's modern TLS):
-
-   ```bash
-   curl -Lo firefox-52.9.0esr.tar.bz2 \
-     https://archive.mozilla.org/pub/firefox/releases/52.9.0esr/linux-x86_64/en-US/firefox-52.9.0esr.tar.bz2
-   ```
-
-2. **Configure credentials** (never committed):
+1. **Configure credentials** (never committed):
 
    ```bash
    cp .env.example .env
    # edit .env with your BMC IPs + creds
    ```
 
-3. **Build and run:**
+2. **Build and run:**
 
    ```bash
    docker compose up -d --build
    ```
 
-4. **Open** http://localhost:8088
+3. **Open** http://localhost:8088
 
-Everything else (OpenJDK 8, IcedTea-Web, the NPAPI plugin grafted from Debian
-jessie, noVNC, ipmitool) is fetched during the build.
+The image is self-contained: everything (OpenJDK 8, IcedTea-Web, the NPAPI plugin
+grafted from Debian jessie, **Firefox 52 ESR** fetched in a build stage, noVNC,
+xterm.js, ipmitool) is pulled during the build. No host-side files to stage, so
+the repo builds straight from a `git clone` (see [Deploying with Portainer](#deploying-with-portainer)).
 
 ## Usage
 
@@ -161,6 +155,31 @@ docker exec bmc-web bundle exec rspec
 RSpec + Rack::Test cover routing, the power-action allow-list, the launch
 trigger, and noVNC embedding, with IPMI stubbed so tests never touch a real BMC.
 
+## Deploying with Portainer
+
+The image is self-contained (Firefox 52 is fetched in a build stage, not staged
+on the host), so Portainer can build straight from the Git repo:
+
+1. **Stacks → Add stack → Repository.**
+2. Repository URL `https://github.com/Arawn-Davies/bastion`, compose path
+   `docker-compose.yml`.
+3. **Environment variables:** add your `.env` values (`ILO_*`, `IDRAC_*`,
+   `PLATFORM_USER`/`PLATFORM_PASS`, `SESSION_SECRET`, and the `GITHUB_*` trio if
+   using SSO). Portainer writes these to the stack's env; the compose reads `.env`
+   optionally, so nothing breaks if a var is unset.
+4. **GitOps updates:** enable polling (e.g. every 5 min) or add the webhook, so a
+   push to `main` re-pulls and rebuilds automatically. This is the auto-redeploy
+   path (no Watchtower needed, since Watchtower re-pulls registry tags and here
+   Portainer builds from source).
+5. For production put it behind TLS: set `TRUST_PROXY=1`, keep the default
+   `WEB_BIND=127.0.0.1`, and front `127.0.0.1:8088` with a reverse proxy that has
+   **Websockets ON** and a long read timeout (the KVM and serial streams need
+   both). See [SECURITY.md](SECURITY.md#running-behind-tls-reverse-proxy).
+
+Rebuilding recreates `bmc-web`, which drops any open KVM/serial WebSocket; clients
+just reconnect. Named volumes (`servers-data`, the FF profiles, `icedtea-trust`)
+persist across rebuilds.
+
 ## How it works (the legacy gauntlet)
 
 The fiddly bits, documented so a rebuild never becomes archaeology:
@@ -168,6 +187,10 @@ The fiddly bits, documented so a rebuild never becomes archaeology:
 - **Engine base is `debian:stretch`** (via `archive.debian.org`): the last Debian
   carrying `openjdk-8` + `icedtea-netx` + `firefox-esr` together. Needs `bzip2`
   apt-installed or the FF52 `tar xjf` fails.
+- **Firefox 52 ESR is fetched in a `debian:bookworm-slim` build stage** and
+  `COPY --from`'d into the stretch image. Stretch's own wget/curl can't negotiate
+  archive.mozilla.org's TLS, so a modern stage does the download - which keeps the
+  repo self-contained (no host-side tarball to stage before building).
 - **iLO2 NPAPI plugin** is grafted from jessie's icedtea-web **1.5.3**: the native
   `IcedTeaPlugin.so` **and both** `plugin.jar` + `netx.jar`. All three must be the
   same version or the applet throws `NoSuchMethodError` on `NetxPanel.<init>`.
